@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import {
   COLUMN_COUNT,
   createRow,
@@ -484,6 +484,11 @@ interface SectionBlockProps {
   onClearMark: (rowId: string, columnIndex: number) => void;
 }
 
+interface OpenCellMenu {
+  rowId: string;
+  columnIndex: number;
+}
+
 const SectionBlock = ({
   section,
   onAddRow,
@@ -493,18 +498,61 @@ const SectionBlock = ({
   onMarkUndone,
   onClearMark,
 }: SectionBlockProps) => {
-  const handleCellTap = (event: MouseEvent<HTMLButtonElement>, rowId: string, columnIndex: number) => {
-    if (event.detail >= 3) {
-      onClearMark(rowId, columnIndex);
+  const [openMenuCell, setOpenMenuCell] = useState<OpenCellMenu | null>(null);
+  const openCellRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!openMenuCell) {
       return;
     }
 
-    if (event.detail === 2) {
-      onMarkUndone(rowId, columnIndex);
-      return;
-    }
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
 
+      if (target instanceof Node && openCellRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpenMenuCell(null);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpenMenuCell(null);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [openMenuCell]);
+
+  const isCellMenuOpen = (rowId: string, columnIndex: number) =>
+    openMenuCell?.rowId === rowId && openMenuCell.columnIndex === columnIndex;
+
+  const handleCellMenuToggle = (rowId: string, columnIndex: number) => {
+    setOpenMenuCell((currentCell) =>
+      currentCell?.rowId === rowId && currentCell.columnIndex === columnIndex ? null : { rowId, columnIndex },
+    );
+  };
+
+  const handleMarkDone = (rowId: string, columnIndex: number) => {
     onMarkDone(rowId, columnIndex);
+    setOpenMenuCell(null);
+  };
+
+  const handleMarkUndone = (rowId: string, columnIndex: number) => {
+    onMarkUndone(rowId, columnIndex);
+    setOpenMenuCell(null);
+  };
+
+  const handleClearMark = (rowId: string, columnIndex: number) => {
+    onClearMark(rowId, columnIndex);
+    setOpenMenuCell(null);
   };
 
   return (
@@ -533,18 +581,55 @@ const SectionBlock = ({
             const checkState = row.checksByColumn[columnIndex];
             const isDone = checkState === true;
             const isUndone = checkState === 'undone';
+            const isMenuOpen = isCellMenuOpen(row.id, columnIndex);
 
             return (
-              <td key={columnIndex} className="checkbox-cell">
-                <button
-                  type="button"
-                  className={`check-toggle ${isDone ? 'checked' : ''} ${isUndone ? 'undone' : ''}`}
-                  onClick={(event) => handleCellTap(event, row.id, columnIndex)}
-                  aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}`}
-                  aria-pressed={isDone}
-                >
-                  {isDone ? '+' : isUndone ? '-' : ''}
-                </button>
+              <td key={columnIndex} className={`checkbox-cell ${isMenuOpen ? 'menu-open' : ''}`}>
+                <div className="cell-action-root" ref={isMenuOpen ? openCellRef : null}>
+                  <button
+                    type="button"
+                    className={`check-toggle ${isDone ? 'checked' : ''} ${isUndone ? 'undone' : ''}`}
+                    onClick={() => handleCellMenuToggle(row.id, columnIndex)}
+                    aria-haspopup="menu"
+                    aria-expanded={isMenuOpen}
+                    aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}${
+                      isDone ? ', marked plus' : isUndone ? ', marked minus' : ', empty'
+                    }`}
+                  >
+                    {isDone ? '+' : isUndone ? '-' : ''}
+                  </button>
+                  {isMenuOpen ? (
+                    <div className="cell-mark-menu" role="menu" aria-label="Cell mark options">
+                      <button
+                        type="button"
+                        className="cell-mark-option plus-option"
+                        role="menuitem"
+                        onClick={() => handleMarkDone(row.id, columnIndex)}
+                        aria-label="Mark plus"
+                      >
+                        +
+                      </button>
+                      <button
+                        type="button"
+                        className="cell-mark-option minus-option"
+                        role="menuitem"
+                        onClick={() => handleMarkUndone(row.id, columnIndex)}
+                        aria-label="Mark minus"
+                      >
+                        -
+                      </button>
+                      <button
+                        type="button"
+                        className="cell-mark-option clear-option"
+                        role="menuitem"
+                        onClick={() => handleClearMark(row.id, columnIndex)}
+                        aria-label="Clear mark"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               </td>
             );
           })}
