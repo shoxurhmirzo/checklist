@@ -1,5 +1,5 @@
 import { COLUMN_COUNT, createSheet, generateColumnLabelsForMonth } from './defaults';
-import type { BackupPayload, ChecklistSheet } from './types';
+import type { BackupPayload, ChecklistSheet, CheckState } from './types';
 
 const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
@@ -8,6 +8,11 @@ const BACKUP_VERSION = 1;
 
 const hasUsefulColumnLabels = (labels: string[]) =>
   labels.length === COLUMN_COUNT && labels.some((label) => label.trim().length > 0);
+
+const normalizeChecks = (checks: ChecklistSheet['sections'][number]['rows'][number]['checksByColumn']) =>
+  Object.fromEntries(
+    Object.entries(checks).filter(([, value]) => value === true || value === 'undone'),
+  );
 
 export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
   sheets.map((sheet) => ({
@@ -38,9 +43,15 @@ export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
               : new Date(sheet.createdAt || Date.now()).getMonth(),
           ),
     sections: sheet.sections.map((section) => {
+      const rows = section.rows.map((row) => ({
+        ...row,
+        checksByColumn: normalizeChecks(row.checksByColumn),
+      }));
+
       if (section.id === 'indikatorlar') {
         return {
           ...section,
+          rows,
           title: 'Indikatorlar',
         };
       }
@@ -48,6 +59,7 @@ export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
       return {
         ...section,
         id: 'amaliyotlar',
+        rows,
         title: 'Amaliyotlar',
       };
     }),
@@ -116,10 +128,13 @@ export const createBackupPayload = (sheets: ChecklistSheet[]): BackupPayload => 
   sheets,
 });
 
-const isValidChecks = (checks: unknown): checks is Record<number, boolean> =>
+const isValidCheckState = (value: unknown): value is CheckState | false =>
+  value === true || value === false || value === 'undone';
+
+const isValidChecks = (checks: unknown): checks is Record<number, CheckState | false> =>
   typeof checks === 'object' &&
   checks !== null &&
-  Object.values(checks).every((value) => typeof value === 'boolean');
+  Object.values(checks).every(isValidCheckState);
 
 export const isValidBackupPayload = (value: unknown): value is BackupPayload => {
   if (typeof value !== 'object' || value === null) {

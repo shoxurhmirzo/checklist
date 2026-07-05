@@ -286,12 +286,26 @@ thead th {
   animation: plus-appear 180ms ease-out;
 }
 
+.check-toggle.undone {
+  font-weight: 700;
+  animation: mark-appear 180ms ease-out;
+}
+
 .check-toggle.checked::before {
   content: "";
   position: absolute;
   inset: 0;
   background: rgba(120, 190, 120, 0.22);
   animation: green-fill 220ms ease-out;
+  pointer-events: none;
+}
+
+.check-toggle.undone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(220, 120, 90, 0.2);
+  animation: red-fill 220ms ease-out;
   pointer-events: none;
 }
 
@@ -389,6 +403,35 @@ thead th {
 
   100% {
     opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes mark-appear {
+  0% {
+    opacity: 0;
+    transform: scale(0.65);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes red-fill {
+  0% {
+    opacity: 0;
+    transform: scale(1);
+  }
+
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  100% {
+    opacity: 0;
     transform: scale(1);
   }
 }

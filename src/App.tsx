@@ -392,7 +392,7 @@ const App = () => {
                         rows.map((row) => (row.id === rowId ? { ...row, label } : row)),
                       )
                     }
-                    onToggleCheck={(rowId, columnIndex) =>
+                    onMarkDone={(rowId, columnIndex) =>
                       updateSectionRows(section.id, (rows) =>
                         rows.map((row) =>
                           row.id === rowId
@@ -400,7 +400,22 @@ const App = () => {
                                 ...row,
                                 checksByColumn: {
                                   ...row.checksByColumn,
-                                  [columnIndex]: !row.checksByColumn[columnIndex],
+                                  [columnIndex]: true,
+                                },
+                              }
+                            : row,
+                        ),
+                      )
+                    }
+                    onMarkUndone={(rowId, columnIndex) =>
+                      updateSectionRows(section.id, (rows) =>
+                        rows.map((row) =>
+                          row.id === rowId
+                            ? {
+                                ...row,
+                                checksByColumn: {
+                                  ...row.checksByColumn,
+                                  [columnIndex]: 'undone',
                                 },
                               }
                             : row,
@@ -447,7 +462,8 @@ interface SectionBlockProps {
   onAddRow: () => void;
   onDeleteRow: (rowId: string) => void;
   onRenameRow: (rowId: string, label: string) => void;
-  onToggleCheck: (rowId: string, columnIndex: number) => void;
+  onMarkDone: (rowId: string, columnIndex: number) => void;
+  onMarkUndone: (rowId: string, columnIndex: number) => void;
 }
 
 const SectionBlock = ({
@@ -455,7 +471,8 @@ const SectionBlock = ({
   onAddRow,
   onDeleteRow,
   onRenameRow,
-  onToggleCheck,
+  onMarkDone,
+  onMarkUndone,
 }: SectionBlockProps) => (
   <>
     {section.rows.map((row, rowIndex) => (
@@ -478,19 +495,26 @@ const SectionBlock = ({
           </div>
         </td>
 
-        {Array.from({ length: COLUMN_COUNT }, (_, columnIndex) => (
-          <td key={columnIndex} className="checkbox-cell">
-            <button
-              type="button"
-              className={`check-toggle ${row.checksByColumn[columnIndex] ? 'checked' : ''}`}
-              onClick={() => onToggleCheck(row.id, columnIndex)}
-              aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}`}
-              aria-pressed={Boolean(row.checksByColumn[columnIndex])}
-            >
-              {row.checksByColumn[columnIndex] ? '+' : ''}
-            </button>
-          </td>
-        ))}
+        {Array.from({ length: COLUMN_COUNT }, (_, columnIndex) => {
+          const checkState = row.checksByColumn[columnIndex];
+          const isDone = checkState === true;
+          const isUndone = checkState === 'undone';
+
+          return (
+            <td key={columnIndex} className="checkbox-cell">
+              <button
+                type="button"
+                className={`check-toggle ${isDone ? 'checked' : ''} ${isUndone ? 'undone' : ''}`}
+                onClick={() => onMarkDone(row.id, columnIndex)}
+                onDoubleClick={() => onMarkUndone(row.id, columnIndex)}
+                aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}`}
+                aria-pressed={isDone}
+              >
+                {isDone ? '+' : isUndone ? '-' : ''}
+              </button>
+            </td>
+          );
+        })}
       </tr>
     ))}
 

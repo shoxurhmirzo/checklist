@@ -1,10 +1,11 @@
 export type SectionId = 'indikatorlar' | 'amaliyotlar';
+export type CheckState = true | 'undone';
 
 export interface ChecklistRow {
   id: string;
   label: string;
   order: number;
-  checksByColumn: Record<number, boolean>;
+  checksByColumn: Record<number, CheckState>;
 }
 
 export interface ChecklistSection {
