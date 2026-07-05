@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, MouseEvent, useEffect, useRef, useState } from 'react';
 import {
   COLUMN_COUNT,
   createRow,
@@ -422,6 +422,23 @@ const App = () => {
                         ),
                       )
                     }
+                    onClearMark={(rowId, columnIndex) =>
+                      updateSectionRows(section.id, (rows) =>
+                        rows.map((row) => {
+                          if (row.id !== rowId) {
+                            return row;
+                          }
+
+                          const checksByColumn = { ...row.checksByColumn };
+                          delete checksByColumn[columnIndex];
+
+                          return {
+                            ...row,
+                            checksByColumn,
+                          };
+                        }),
+                      )
+                    }
                   />
                 ))}
               </tbody>
@@ -464,6 +481,7 @@ interface SectionBlockProps {
   onRenameRow: (rowId: string, label: string) => void;
   onMarkDone: (rowId: string, columnIndex: number) => void;
   onMarkUndone: (rowId: string, columnIndex: number) => void;
+  onClearMark: (rowId: string, columnIndex: number) => void;
 }
 
 const SectionBlock = ({
@@ -473,63 +491,79 @@ const SectionBlock = ({
   onRenameRow,
   onMarkDone,
   onMarkUndone,
-}: SectionBlockProps) => (
-  <>
-    {section.rows.map((row, rowIndex) => (
-      <tr key={row.id}>
-        {rowIndex === 0 ? (
-          <th className="vertical-section" rowSpan={section.rows.length}>
-            <span>{section.title}</span>
-          </th>
-        ) : null}
-        <td className="row-label-cell">
-          <div className="row-label-wrap">
-            <input
-              type="text"
-              value={row.label}
-              onChange={(event) => onRenameRow(row.id, event.target.value)}
-            />
-            <button type="button" className="row-delete-button" onClick={() => onDeleteRow(row.id)} aria-label="Delete row">
-              ×
-            </button>
-          </div>
-        </td>
+  onClearMark,
+}: SectionBlockProps) => {
+  const handleCellTap = (event: MouseEvent<HTMLButtonElement>, rowId: string, columnIndex: number) => {
+    if (event.detail >= 3) {
+      onClearMark(rowId, columnIndex);
+      return;
+    }
 
-        {Array.from({ length: COLUMN_COUNT }, (_, columnIndex) => {
-          const checkState = row.checksByColumn[columnIndex];
-          const isDone = checkState === true;
-          const isUndone = checkState === 'undone';
+    if (event.detail === 2) {
+      onMarkUndone(rowId, columnIndex);
+      return;
+    }
 
-          return (
-            <td key={columnIndex} className="checkbox-cell">
-              <button
-                type="button"
-                className={`check-toggle ${isDone ? 'checked' : ''} ${isUndone ? 'undone' : ''}`}
-                onClick={() => onMarkDone(row.id, columnIndex)}
-                onDoubleClick={() => onMarkUndone(row.id, columnIndex)}
-                aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}`}
-                aria-pressed={isDone}
-              >
-                {isDone ? '+' : isUndone ? '-' : ''}
+    onMarkDone(rowId, columnIndex);
+  };
+
+  return (
+    <>
+      {section.rows.map((row, rowIndex) => (
+        <tr key={row.id}>
+          {rowIndex === 0 ? (
+            <th className="vertical-section" rowSpan={section.rows.length}>
+              <span>{section.title}</span>
+            </th>
+          ) : null}
+          <td className="row-label-cell">
+            <div className="row-label-wrap">
+              <input
+                type="text"
+                value={row.label}
+                onChange={(event) => onRenameRow(row.id, event.target.value)}
+              />
+              <button type="button" className="row-delete-button" onClick={() => onDeleteRow(row.id)} aria-label="Delete row">
+                ×
               </button>
-            </td>
-          );
-        })}
-      </tr>
-    ))}
+            </div>
+          </td>
 
-    <tr className="add-row-tr">
-      <td className="section-spacer" />
-      <td className="add-row-cell">
-        <button type="button" className="plain-button" onClick={onAddRow}>
-          + Row
-        </button>
-      </td>
-      {Array.from({ length: COLUMN_COUNT }, (_, index) => (
-        <td key={index} className="add-row-filler" />
+          {Array.from({ length: COLUMN_COUNT }, (_, columnIndex) => {
+            const checkState = row.checksByColumn[columnIndex];
+            const isDone = checkState === true;
+            const isUndone = checkState === 'undone';
+
+            return (
+              <td key={columnIndex} className="checkbox-cell">
+                <button
+                  type="button"
+                  className={`check-toggle ${isDone ? 'checked' : ''} ${isUndone ? 'undone' : ''}`}
+                  onClick={(event) => handleCellTap(event, row.id, columnIndex)}
+                  aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}`}
+                  aria-pressed={isDone}
+                >
+                  {isDone ? '+' : isUndone ? '-' : ''}
+                </button>
+              </td>
+            );
+          })}
+        </tr>
       ))}
-    </tr>
-  </>
-);
+
+      <tr className="add-row-tr">
+        <td className="section-spacer" />
+        <td className="add-row-cell">
+          <button type="button" className="plain-button" onClick={onAddRow}>
+            + Row
+          </button>
+        </td>
+        {Array.from({ length: COLUMN_COUNT }, (_, index) => (
+          <td key={index} className="add-row-filler" />
+        ))}
+      </tr>
+    </>
+  );
+};
 
 export default App;
