@@ -1,5 +1,10 @@
 export type SectionId = 'indikatorlar' | 'amaliyotlar';
-export type CheckState = true | 'undone';
+export type CheckMark = 'plus' | 'minus';
+
+export interface CheckState {
+  mark: CheckMark;
+  loggedAt?: string;
+}
 
 export interface ChecklistRow {
   id: string;
