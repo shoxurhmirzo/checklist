@@ -9,10 +9,41 @@ const BACKUP_VERSION = 1;
 const hasUsefulColumnLabels = (labels: string[]) =>
   labels.length === COLUMN_COUNT && labels.some((label) => label.trim().length > 0);
 
-const normalizeChecks = (checks: ChecklistSheet['sections'][number]['rows'][number]['checksByColumn']) =>
-  Object.fromEntries(
-    Object.entries(checks).filter(([, value]) => value === true || value === 'undone'),
+const normalizeCheck = (value: unknown): CheckState | null => {
+  if (value === true) {
+    return { mark: 'plus' };
+  }
+
+  if (value === 'undone') {
+    return { mark: 'minus' };
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const check = value as Partial<CheckState>;
+
+  if (check.mark !== 'plus' && check.mark !== 'minus') {
+    return null;
+  }
+
+  return typeof check.loggedAt === 'string' && check.loggedAt.trim().length > 0
+    ? { mark: check.mark, loggedAt: check.loggedAt }
+    : { mark: check.mark };
+};
+
+const normalizeChecks = (checks: unknown): ChecklistSheet['sections'][number]['rows'][number]['checksByColumn'] => {
+  if (typeof checks !== 'object' || checks === null) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(checks)
+      .map(([columnIndex, value]) => [columnIndex, normalizeCheck(value)] as const)
+      .filter((entry): entry is readonly [string, CheckState] => entry[1] !== null),
   );
+};
 
 export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
   sheets.map((sheet) => ({
@@ -128,10 +159,23 @@ export const createBackupPayload = (sheets: ChecklistSheet[]): BackupPayload => 
   sheets,
 });
 
-const isValidCheckState = (value: unknown): value is CheckState | false =>
-  value === true || value === false || value === 'undone';
+const isValidLoggedCheckState = (value: unknown): value is CheckState => {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
 
-const isValidChecks = (checks: unknown): checks is Record<number, CheckState | false> =>
+  const check = value as Partial<CheckState>;
+
+  return (
+    (check.mark === 'plus' || check.mark === 'minus') &&
+    (check.loggedAt === undefined || typeof check.loggedAt === 'string')
+  );
+};
+
+const isValidCheckState = (value: unknown): value is CheckState | true | 'undone' | false =>
+  value === true || value === false || value === 'undone' || isValidLoggedCheckState(value);
+
+const isValidChecks = (checks: unknown): checks is Record<number, CheckState | true | 'undone' | false> =>
   typeof checks === 'object' &&
   checks !== null &&
   Object.values(checks).every(isValidCheckState);

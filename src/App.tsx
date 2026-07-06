@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react';
 import {
   COLUMN_COUNT,
   createRow,
@@ -8,7 +8,7 @@ import {
   parseMonthValue,
 } from './defaults';
 import { createBackupPayload, isValidBackupPayload, loadSheets, normalizeSheets, saveSheets } from './storage';
-import type { ChecklistSection, ChecklistSheet, SectionId } from './types';
+import type { CheckState, ChecklistSection, ChecklistSheet, SectionId } from './types';
 
 const A4_LANDSCAPE_RATIO = 297 / 210;
 
@@ -27,6 +27,29 @@ const downloadTextFile = (content: string, fileName: string) => {
   link.download = fileName;
   link.click();
   URL.revokeObjectURL(url);
+};
+
+const formatLogTime = (checkState: CheckState) => {
+  if (!checkState.loggedAt) {
+    return 'Log time not recorded';
+  }
+
+  const date = new Date(checkState.loggedAt);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Log time not recorded';
+  }
+
+  return `Logged: ${new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+    hour12: false,
+  }).format(date)}`;
 };
 
 const App = () => {
@@ -145,9 +168,9 @@ const App = () => {
         (totals, section) => {
           section.rows.forEach((row) => {
             Object.values(row.checksByColumn).forEach((checkState) => {
-              if (checkState === true) {
+              if (checkState.mark === 'plus') {
                 totals.plus += 1;
-              } else if (checkState === 'undone') {
+              } else if (checkState.mark === 'minus') {
                 totals.minus += 1;
               }
             });
@@ -395,8 +418,8 @@ const App = () => {
                   <SectionBlock
                     key={section.id}
                     section={section}
-                    onAddRow={() =>
-                      updateSectionRows(section.id, (rows) => [...rows, createRow(rows.length)])
+                    onAddRow={(label) =>
+                      updateSectionRows(section.id, (rows) => [...rows, { ...createRow(rows.length), label }])
                     }
                     onDeleteRow={(rowId) => {
                       setConfirmState({
@@ -425,7 +448,10 @@ const App = () => {
                                 ...row,
                                 checksByColumn: {
                                   ...row.checksByColumn,
-                                  [columnIndex]: true,
+                                  [columnIndex]: {
+                                    mark: 'plus',
+                                    loggedAt: new Date().toISOString(),
+                                  },
                                 },
                               }
                             : row,
@@ -440,7 +466,10 @@ const App = () => {
                                 ...row,
                                 checksByColumn: {
                                   ...row.checksByColumn,
-                                  [columnIndex]: 'undone',
+                                  [columnIndex]: {
+                                    mark: 'minus',
+                                    loggedAt: new Date().toISOString(),
+                                  },
                                 },
                               }
                             : row,
@@ -501,7 +530,7 @@ const App = () => {
 
 interface SectionBlockProps {
   section: ChecklistSection;
-  onAddRow: () => void;
+  onAddRow: (label: string) => void;
   onDeleteRow: (rowId: string) => void;
   onRenameRow: (rowId: string, label: string) => void;
   onMarkDone: (rowId: string, columnIndex: number) => void;
@@ -524,6 +553,7 @@ const SectionBlock = ({
   onClearMark,
 }: SectionBlockProps) => {
   const [openMenuCell, setOpenMenuCell] = useState<OpenCellMenu | null>(null);
+  const [newRowLabel, setNewRowLabel] = useState('');
   const openCellRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -580,6 +610,36 @@ const SectionBlock = ({
     setOpenMenuCell(null);
   };
 
+  const handleRowLabelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.currentTarget.blur();
+    }
+  };
+
+  const saveNewRow = () => {
+    const label = newRowLabel.trim();
+
+    if (!label) {
+      return;
+    }
+
+    onAddRow(label);
+    setNewRowLabel('');
+  };
+
+  const handleNewRowKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveNewRow();
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setNewRowLabel('');
+    }
+  };
+
   return (
     <>
       {section.rows.map((row, rowIndex) => (
@@ -595,6 +655,7 @@ const SectionBlock = ({
                 type="text"
                 value={row.label}
                 onChange={(event) => onRenameRow(row.id, event.target.value)}
+                onKeyDown={handleRowLabelKeyDown}
               />
               <button type="button" className="row-delete-button" onClick={() => onDeleteRow(row.id)} aria-label="Delete row">
                 ×
@@ -604,8 +665,8 @@ const SectionBlock = ({
 
           {Array.from({ length: COLUMN_COUNT }, (_, columnIndex) => {
             const checkState = row.checksByColumn[columnIndex];
-            const isDone = checkState === true;
-            const isUndone = checkState === 'undone';
+            const isDone = checkState?.mark === 'plus';
+            const isUndone = checkState?.mark === 'minus';
             const isMenuOpen = isCellMenuOpen(row.id, columnIndex);
 
             return (
@@ -620,6 +681,7 @@ const SectionBlock = ({
                     aria-label={`${section.title} ${row.label || 'item'} day ${columnIndex + 1}${
                       isDone ? ', marked plus' : isUndone ? ', marked minus' : ', empty'
                     }`}
+                    title={checkState ? formatLogTime(checkState) : undefined}
                   >
                     {isDone ? '+' : isUndone ? '-' : ''}
                   </button>
@@ -664,9 +726,19 @@ const SectionBlock = ({
       <tr className="add-row-tr">
         <td className="section-spacer" />
         <td className="add-row-cell">
-          <button type="button" className="plain-button" onClick={onAddRow}>
-            + Row
-          </button>
+          <div className="add-row-form">
+            <input
+              type="text"
+              value={newRowLabel}
+              onChange={(event) => setNewRowLabel(event.target.value)}
+              onKeyDown={handleNewRowKeyDown}
+              placeholder="+ Row"
+              aria-label={`Add ${section.title} row`}
+            />
+            <button type="button" className="plain-button" onClick={saveNewRow} aria-label={`Save ${section.title} row`}>
+              +
+            </button>
+          </div>
         </td>
         {Array.from({ length: COLUMN_COUNT }, (_, index) => (
           <td key={index} className="add-row-filler" />

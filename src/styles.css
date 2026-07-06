@@ -406,6 +406,27 @@ thead th {
   background: #fff;
 }
 
+.add-row-form {
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+}
+
+.add-row-form input {
+  min-width: 0;
+  flex: 1;
+  border: 1px solid #000;
+  border-radius: 0;
+  background: #fff;
+  color: #000;
+  padding: 0.2rem 0.35rem;
+  font: inherit;
+}
+
+.add-row-form button {
+  min-width: 28px;
+}
+
 .plain-button {
   border: 1px solid #000;
   background: #fff;
