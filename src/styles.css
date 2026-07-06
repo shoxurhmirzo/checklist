@@ -107,6 +107,29 @@ button {
   white-space: nowrap;
 }
 
+.mark-totals {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.86rem;
+  white-space: nowrap;
+}
+
+.mark-total {
+  border: 1px solid #161616;
+  background: #fff;
+  padding: 0.15rem 0.35rem;
+  line-height: 1.1;
+}
+
+.plus-total {
+  color: #4f8a5b;
+}
+
+.minus-total {
+  color: #a46151;
+}
+
 .sheet-wrapper {
   min-width: 0;
   overflow: hidden;

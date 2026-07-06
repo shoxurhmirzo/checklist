@@ -140,6 +140,24 @@ const App = () => {
   }, [activeSheetId, sheets]);
 
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0] ?? null;
+  const markTotals = activeSheet
+    ? activeSheet.sections.reduce(
+        (totals, section) => {
+          section.rows.forEach((row) => {
+            Object.values(row.checksByColumn).forEach((checkState) => {
+              if (checkState === true) {
+                totals.plus += 1;
+              } else if (checkState === 'undone') {
+                totals.minus += 1;
+              }
+            });
+          });
+
+          return totals;
+        },
+        { plus: 0, minus: 0 },
+      )
+    : { plus: 0, minus: 0 };
 
   useEffect(() => {
     if (activeSheet || sheets.length === 0) {
@@ -314,6 +332,13 @@ const App = () => {
               Import
             </button>
             <input ref={importInputRef} hidden type="file" accept="application/json" onChange={handleImport} />
+            <span
+              className="mark-totals"
+              aria-label={`Plus total ${markTotals.plus}, minus total ${markTotals.minus}`}
+            >
+              <span className="mark-total plus-total">+ {markTotals.plus}</span>
+              <span className="mark-total minus-total">- {markTotals.minus}</span>
+            </span>
             <span className="status-text">{status}</span>
           </div>
         </section>
