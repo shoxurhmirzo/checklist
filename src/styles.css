@@ -280,6 +280,15 @@ button:focus-visible {
   padding: 0.35rem 0.7rem;
 }
 
+.sort-out-button:disabled,
+.sort-out-button:disabled:hover {
+  border-color: #9a9a9a;
+  background: #ededed;
+  color: #777;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
 .sort-board-page {
   display: flex;
   justify-content: center;

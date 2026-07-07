@@ -29,6 +29,7 @@ const A4_LANDSCAPE_RATIO = 297 / 210;
 const DIVIDE_AND_CONQUER_PROTECTED_LENGTH = DEFAULT_DIVIDE_AND_CONQUER_TEXT.length;
 const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
 const COMPLETED_MAGNETIC_DISTANCE = 60;
+const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
 type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard';
 
@@ -146,16 +147,18 @@ const makeDivideAndConquerTaskId = () =>
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const parseDivideAndConquerTasks = (value: string): DivideAndConquerTask[] =>
+const getDivideAndConquerTaskTexts = (value: string) =>
   value
     .split('\n')
     .map((line) => line.replace(/^\s*\d+\.\s*/, '').trim())
-    .filter((line) => line.length > 0)
-    .map((text) => ({
-      id: makeDivideAndConquerTaskId(),
-      text,
-      bucket: 'unassigned' as const,
-    }));
+    .filter((line) => line.length > 0);
+
+const parseDivideAndConquerTasks = (value: string): DivideAndConquerTask[] =>
+  getDivideAndConquerTaskTexts(value).map((text) => ({
+    id: makeDivideAndConquerTaskId(),
+    text,
+    bucket: 'unassigned' as const,
+  }));
 
 const formatDivideAndConquerTasksText = (tasks: DivideAndConquerTask[]) =>
   tasks.map((task, index) => buildDivideAndConquerLine(index + 1, task.text)).join('\n');
@@ -313,6 +316,8 @@ const App = () => {
     completed: divideAndConquerItems.filter((item) => item.bucket === 'completed'),
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
+  const divideAndConquerTaskCount = getDivideAndConquerTaskTexts(divideAndConquerText).length;
+  const canSortDivideAndConquerTasks = divideAndConquerTaskCount >= MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT;
 
   const updateDivideAndConquerTaskText = (taskId: string, text: string) => {
     const nextItems = divideAndConquerItems.map((item) => (item.id === taskId ? { ...item, text } : item));
@@ -677,8 +682,8 @@ const App = () => {
   const handleStartSorting = () => {
     const tasks = parseDivideAndConquerTasks(divideAndConquerText);
 
-    if (tasks.length === 0) {
-      setStatus('Add at least one task before sorting');
+    if (tasks.length < MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT) {
+      setStatus(`Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks before sorting`);
       return;
     }
 
@@ -866,7 +871,17 @@ const App = () => {
                 spellCheck
               />
               <div className="dq-editor-actions">
-                <button type="button" className="sort-out-button" onClick={handleStartSorting}>
+                <button
+                  type="button"
+                  className="sort-out-button"
+                  onClick={handleStartSorting}
+                  disabled={!canSortDivideAndConquerTasks}
+                  title={
+                    canSortDivideAndConquerTasks
+                      ? 'Sort tasks'
+                      : `Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks to sort`
+                  }
+                >
                   Sort them out
                 </button>
               </div>
