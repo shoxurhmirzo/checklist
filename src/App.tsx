@@ -169,6 +169,7 @@ const App = () => {
     DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   );
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [editingDivideAndConquerTaskId, setEditingDivideAndConquerTaskId] = useState<string | null>(null);
   const [isCompletedMagnetic, setIsCompletedMagnetic] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   const [status, setStatus] = useState('Loading checklist...');
@@ -319,8 +320,19 @@ const App = () => {
     setDivideAndConquerText(formatDivideAndConquerTasksText(nextItems));
   };
 
+  const deleteDivideAndConquerTask = (taskId: string) => {
+    const nextItems = divideAndConquerItems.filter((item) => item.id !== taskId);
+    setDivideAndConquerItems(nextItems);
+    setDivideAndConquerText(formatDivideAndConquerTasksText(nextItems));
+
+    if (editingDivideAndConquerTaskId === taskId) {
+      setEditingDivideAndConquerTaskId(null);
+    }
+  };
+
   const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask) => {
     const isSourceTaskPlaceholder = task.bucket === 'unassigned' && draggedTaskId === task.id;
+    const isEditing = editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
 
     return (
       <div
@@ -329,7 +341,7 @@ const App = () => {
         className={`sort-task-card ${task.bucket === 'completed' ? 'completed' : ''} ${
           draggedTaskId === task.id ? 'dragging' : ''
         } ${isSourceTaskPlaceholder ? 'source-placeholder' : ''}`}
-        draggable
+        draggable={!isEditing}
         onDragStart={(event) => handleDivideAndConquerDragStart(event, task.id)}
         onDragEnd={handleDivideAndConquerDragEnd}
       >
@@ -341,14 +353,55 @@ const App = () => {
           <span />
           <span />
         </span>
-        <input
-          className="sort-task-card-input"
-          value={task.text}
-          aria-label="Edit task"
-          draggable={false}
-          onChange={(event) => updateDivideAndConquerTaskText(task.id, event.target.value)}
-          onDragStart={(event) => event.preventDefault()}
-        />
+        {isEditing ? (
+          <input
+            className="sort-task-card-input"
+            value={task.text}
+            aria-label="Edit task"
+            draggable={false}
+            autoFocus
+            onChange={(event) => updateDivideAndConquerTaskText(task.id, event.target.value)}
+            onBlur={() => setEditingDivideAndConquerTaskId(null)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === 'Escape') {
+                event.currentTarget.blur();
+              }
+            }}
+            onDragStart={(event) => event.preventDefault()}
+          />
+        ) : (
+          <>
+            <span className="sort-task-card-text">{task.text}</span>
+            <span className="sort-task-card-actions">
+              <button
+                type="button"
+                className="sort-task-card-action"
+                aria-label="Edit task"
+                draggable={false}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEditingDivideAndConquerTaskId(task.id);
+                }}
+                onDragStart={(event) => event.preventDefault()}
+              >
+                edit
+              </button>
+              <button
+                type="button"
+                className="sort-task-card-action danger"
+                aria-label="Delete task"
+                draggable={false}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  deleteDivideAndConquerTask(task.id);
+                }}
+                onDragStart={(event) => event.preventDefault()}
+              >
+                delete
+              </button>
+            </span>
+          </>
+        )}
       </div>
     );
   };
@@ -786,9 +839,14 @@ const App = () => {
                 Checklist
               </button>
             ) : (
-              <button type="button" className="nav-text-link" onClick={() => setActiveView('divideAndConquer')}>
-                Back to tasks
-              </button>
+              <>
+                <button type="button" className="nav-link-button" onClick={() => setActiveView('divideAndConquer')}>
+                  Back to tasks
+                </button>
+                <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
+                  Checklist
+                </button>
+              </>
             )}
           </div>
         </section>
