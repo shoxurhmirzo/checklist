@@ -1,5 +1,12 @@
 export type SectionId = 'indikatorlar' | 'amaliyotlar';
 export type CheckMark = 'plus' | 'minus';
+export type DivideAndConquerBucket =
+  | 'unassigned'
+  | 'productive-attractive'
+  | 'productive-unattractive'
+  | 'unproductive-attractive'
+  | 'unproductive-unattractive'
+  | 'completed';
 
 export interface CheckState {
   mark: CheckMark;
@@ -30,8 +37,22 @@ export interface ChecklistSheet {
   sections: ChecklistSection[];
 }
 
+export interface DivideAndConquerTask {
+  id: string;
+  text: string;
+  bucket: DivideAndConquerBucket;
+}
+
+export interface AppState {
+  sheets: ChecklistSheet[];
+  divideAndConquerText: string;
+  divideAndConquerItems: DivideAndConquerTask[];
+}
+
 export interface BackupPayload {
   version: number;
   exportedAt: string;
   sheets: ChecklistSheet[];
+  divideAndConquerText?: string;
+  divideAndConquerItems?: DivideAndConquerTask[];
 }

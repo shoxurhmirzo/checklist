@@ -1,10 +1,30 @@
 import { COLUMN_COUNT, createSheet, generateColumnLabelsForMonth } from './defaults';
-import type { BackupPayload, ChecklistSheet, CheckState } from './types';
+import type {
+  AppState,
+  BackupPayload,
+  ChecklistSheet,
+  CheckState,
+  DivideAndConquerBucket,
+  DivideAndConquerTask,
+} from './types';
 
 const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
-const STORE_KEY = 'sheets';
-const BACKUP_VERSION = 1;
+const LEGACY_SHEETS_STORE_KEY = 'sheets';
+const APP_STATE_STORE_KEY = 'state';
+const BACKUP_VERSION = 4;
+
+export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
+export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
+
+const DIVIDE_AND_CONQUER_BUCKETS: DivideAndConquerBucket[] = [
+  'unassigned',
+  'productive-attractive',
+  'productive-unattractive',
+  'unproductive-attractive',
+  'unproductive-unattractive',
+  'completed',
+];
 
 const hasUsefulColumnLabels = (labels: string[]) =>
   labels.length === COLUMN_COUNT && labels.some((label) => label.trim().length > 0);
@@ -96,6 +116,68 @@ export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
     }),
   }));
 
+const normalizeSavedSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
+  sheets.length > 0 ? normalizeSheets(sheets) : [createSheet('Checklist 1')];
+
+const normalizeDivideAndConquerText = (value: unknown) =>
+  typeof value === 'string' ? value : DEFAULT_DIVIDE_AND_CONQUER_TEXT;
+
+const isValidDivideAndConquerBucket = (value: unknown): value is DivideAndConquerBucket =>
+  typeof value === 'string' && DIVIDE_AND_CONQUER_BUCKETS.includes(value as DivideAndConquerBucket);
+
+const normalizeDivideAndConquerItems = (value: unknown): DivideAndConquerTask[] => {
+  if (!Array.isArray(value)) {
+    return DEFAULT_DIVIDE_AND_CONQUER_ITEMS;
+  }
+
+  return value
+    .filter(
+      (item): item is DivideAndConquerTask =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof item.id === 'string' &&
+        typeof item.text === 'string' &&
+        isValidDivideAndConquerBucket((item as DivideAndConquerTask).bucket),
+    )
+    .map((item) => ({
+      id: item.id,
+      text: item.text,
+      bucket: item.bucket,
+    }));
+};
+
+const normalizeAppState = (value: unknown): AppState | null => {
+  if (Array.isArray(value)) {
+    return {
+      sheets: normalizeSavedSheets(value as ChecklistSheet[]),
+      divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
+      divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
+    };
+  }
+
+  if (typeof value !== 'object' || value === null) {
+    return null;
+  }
+
+  const state = value as Partial<AppState>;
+
+  if (!Array.isArray(state.sheets)) {
+    return null;
+  }
+
+  return {
+    sheets: normalizeSavedSheets(state.sheets),
+    divideAndConquerText: normalizeDivideAndConquerText(state.divideAndConquerText),
+    divideAndConquerItems: normalizeDivideAndConquerItems(state.divideAndConquerItems),
+  };
+};
+
+const createDefaultAppState = (): AppState => ({
+  sheets: [createSheet('Checklist 1')],
+  divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
+  divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
+});
+
 const openDatabase = async (): Promise<IDBDatabase> =>
   new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -129,34 +211,53 @@ const withStore = async <T>(
   });
 };
 
-export const loadSheets = async (): Promise<ChecklistSheet[]> =>
-  withStore<ChecklistSheet[]>('readonly', (store, resolve, reject) => {
-    const request = store.get(STORE_KEY);
+const readStoreValue = async <T>(key: string): Promise<T | undefined> =>
+  withStore<T | undefined>('readonly', (store, resolve, reject) => {
+    const request = store.get(key);
 
     request.onsuccess = () => {
-      const result = request.result as ChecklistSheet[] | undefined;
-      resolve(
-        Array.isArray(result) && result.length > 0
-          ? normalizeSheets(result)
-          : [createSheet('Checklist 1')],
-      );
+      resolve(request.result as T | undefined);
     };
 
     request.onerror = () => reject(request.error ?? new Error('Failed to load data'));
   });
 
-export const saveSheets = async (sheets: ChecklistSheet[]): Promise<void> =>
-  withStore<void>('readwrite', (store, resolve, reject) => {
-    const request = store.put(sheets, STORE_KEY);
+export const loadAppState = async (): Promise<AppState> => {
+  const storedState = normalizeAppState(await readStoreValue<unknown>(APP_STATE_STORE_KEY));
 
-    request.onsuccess = () => resolve();
+  if (storedState) {
+    return storedState;
+  }
+
+  const legacySheets = normalizeAppState(await readStoreValue<unknown>(LEGACY_SHEETS_STORE_KEY));
+
+  return legacySheets ?? createDefaultAppState();
+};
+
+export const saveAppState = async (state: AppState): Promise<void> =>
+  withStore<void>('readwrite', (store, resolve, reject) => {
+    const normalizedState: AppState = {
+      sheets: normalizeSavedSheets(state.sheets),
+      divideAndConquerText: state.divideAndConquerText,
+      divideAndConquerItems: normalizeDivideAndConquerItems(state.divideAndConquerItems),
+    };
+    const request = store.put(normalizedState, APP_STATE_STORE_KEY);
+
+    request.onsuccess = () => {
+      const legacyRequest = store.put(normalizedState.sheets, LEGACY_SHEETS_STORE_KEY);
+
+      legacyRequest.onsuccess = () => resolve();
+      legacyRequest.onerror = () => reject(legacyRequest.error ?? new Error('Failed to save data'));
+    };
     request.onerror = () => reject(request.error ?? new Error('Failed to save data'));
   });
 
-export const createBackupPayload = (sheets: ChecklistSheet[]): BackupPayload => ({
+export const createBackupPayload = (state: AppState): BackupPayload => ({
   version: BACKUP_VERSION,
   exportedAt: new Date().toISOString(),
-  sheets,
+  sheets: state.sheets,
+  divideAndConquerText: state.divideAndConquerText,
+  divideAndConquerItems: state.divideAndConquerItems,
 });
 
 const isValidLoggedCheckState = (value: unknown): value is CheckState => {
@@ -188,8 +289,19 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
   const payload = value as Partial<BackupPayload>;
 
   return (
-    payload.version === BACKUP_VERSION &&
+    (payload.version === 1 || payload.version === 2 || payload.version === BACKUP_VERSION) &&
     typeof payload.exportedAt === 'string' &&
+    (payload.divideAndConquerText === undefined || typeof payload.divideAndConquerText === 'string') &&
+    (payload.divideAndConquerItems === undefined ||
+      (Array.isArray(payload.divideAndConquerItems) &&
+        payload.divideAndConquerItems.every(
+          (item) =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof item.id === 'string' &&
+            typeof item.text === 'string' &&
+            isValidDivideAndConquerBucket((item as DivideAndConquerTask).bucket),
+        ))) &&
     Array.isArray(payload.sheets) &&
     payload.sheets.every(
       (sheet) =>
