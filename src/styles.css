@@ -236,7 +236,8 @@ button:focus-visible {
 .dq-task-editor {
   display: block;
   width: min(720px, calc(100vw - 2rem));
-  min-height: calc(100vh - 126px);
+  height: 2.1rem;
+  min-height: 2.1rem;
   margin: 1.5rem auto 0;
   border: 0;
   border-radius: 0;
@@ -260,7 +261,8 @@ button:focus-visible {
   font-size: 1.5rem;
   line-height: 2.1rem;
   padding: 0 0 0 0.45rem;
-  resize: vertical;
+  overflow: hidden;
+  resize: none;
 }
 
 .dq-task-editor:focus {

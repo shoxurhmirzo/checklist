@@ -1,4 +1,11 @@
-import { ChangeEvent, KeyboardEvent as ReactKeyboardEvent, useEffect, useRef, useState } from 'react';
+import {
+  ChangeEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import {
   COLUMN_COUNT,
   createRow,
@@ -185,6 +192,17 @@ const App = () => {
   const [sheetScale, setSheetScale] = useState(1);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+
+  const resizeDivideAndConquerEditor = () => {
+    const editor = divideAndConquerRef.current;
+
+    if (!editor) {
+      return;
+    }
+
+    editor.style.height = 'auto';
+    editor.style.height = `${editor.scrollHeight}px`;
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -452,6 +470,26 @@ const App = () => {
       editor.focus();
       editor.setSelectionRange(cursorPosition, cursorPosition);
     });
+  }, [activeView]);
+
+  useLayoutEffect(() => {
+    if (activeView !== 'divideAndConquer') {
+      return;
+    }
+
+    resizeDivideAndConquerEditor();
+  }, [activeView, divideAndConquerText]);
+
+  useEffect(() => {
+    if (activeView !== 'divideAndConquer') {
+      return;
+    }
+
+    window.addEventListener('resize', resizeDivideAndConquerEditor);
+
+    return () => {
+      window.removeEventListener('resize', resizeDivideAndConquerEditor);
+    };
   }, [activeView]);
 
   const updateActiveSheet = (updater: (sheet: ChecklistSheet) => ChecklistSheet) => {
@@ -863,6 +901,7 @@ const App = () => {
               <textarea
                 ref={divideAndConquerRef}
                 className="dq-task-editor"
+                rows={1}
                 value={divideAndConquerText}
                 onChange={handleDivideAndConquerChange}
                 onKeyDown={handleDivideAndConquerKeyDown}
