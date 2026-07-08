@@ -234,22 +234,39 @@ button:focus-visible {
 }
 
 .dq-task-editor {
-  display: block;
-  width: min(720px, calc(100vw - 2rem));
-  height: 2.1rem;
-  min-height: 2.1rem;
+  display: grid;
+  width: min(820px, calc(100vw - 2rem));
   margin: 1.5rem auto 0;
   border: 0;
   border-radius: 0;
+  background: #fff;
+  color: #111;
+  font-size: 1.5rem;
+  line-height: 1.35;
+}
+
+.dq-task-row {
+  display: grid;
+  grid-template-columns: 4.55rem minmax(0, 1fr);
+  min-height: 2.1rem;
+  border-bottom: 1px solid rgba(22, 22, 22, 0.14);
+}
+
+.dq-task-number {
+  display: block;
+  border-right: 1px solid rgba(36, 91, 103, 0.22);
+  padding: 0.1rem 0.9rem 0.1rem 0.45rem;
+  font-size: 1.5rem;
+  line-height: 2.1rem;
+  white-space: nowrap;
+}
+
+.dq-task-input {
+  display: block;
+  width: 100%;
+  min-height: 2.1rem;
+  border: 0;
   background:
-    linear-gradient(
-      to right,
-      transparent 0,
-      transparent 4.55rem,
-      rgba(36, 91, 103, 0.22) 4.55rem,
-      rgba(36, 91, 103, 0.22) calc(4.55rem + 1px),
-      transparent calc(4.55rem + 1px)
-    ),
     repeating-linear-gradient(
       to bottom,
       transparent 0,
@@ -258,14 +275,14 @@ button:focus-visible {
       rgba(22, 22, 22, 0.14) 2.1rem
     );
   color: #111;
-  font-size: 1.5rem;
+  font: inherit;
   line-height: 2.1rem;
-  padding: 0 0 0 0.45rem;
+  padding: 0.1rem 0.45rem 0.1rem 1.05rem;
   overflow: hidden;
   resize: none;
 }
 
-.dq-task-editor:focus {
+.dq-task-input:focus {
   outline: 0;
 }
 
@@ -499,7 +516,9 @@ button:focus-visible {
   background: #fff;
   display: flex;
   flex-direction: column;
-  height: auto;
+  height: clamp(460px, 62vh, 650px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sort-column-header {
@@ -519,7 +538,9 @@ button:focus-visible {
 .sort-matrix-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  grid-template-rows: repeat(2, auto);
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .sort-cell {
@@ -532,6 +553,7 @@ button:focus-visible {
   border-left: 1px solid #6e747a;
   border-top: 1px solid #6e747a;
   background: #fff;
+  overflow: hidden;
 }
 
 .sort-cell-top-left {
@@ -569,15 +591,17 @@ button:focus-visible {
   flex-direction: column;
   gap: 0.25rem;
   align-content: flex-start;
-  min-height: 170px;
+  min-height: 0;
   flex: 1 1 auto;
-  max-height: 200px;
-  padding-top: 0.1rem;
-  overflow: auto;
+  padding: 0.1rem 0.25rem 0 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 
 .sort-cell-footer {
+  flex: 0 0 auto;
   width: 100%;
   padding-top: 0.75rem;
   text-align: center;
@@ -602,9 +626,11 @@ button:focus-visible {
 }
 
 .sort-task-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.55rem;
+  flex: 0 0 auto;
   width: 100%;
   min-height: 42px;
   border: 1px solid #161616;
@@ -672,16 +698,20 @@ button:focus-visible {
 }
 
 .sort-task-card-text {
-  flex: 1 1 auto;
+  display: block;
   min-width: 0;
+  max-height: 5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
   font-size: 0.95rem;
+  line-height: 1.25;
 }
 
 .sort-task-card-actions {
   display: inline-flex;
   align-items: center;
-  gap: 0.35rem;
-  flex: 0 0 auto;
+  gap: 0.25rem;
+  justify-self: end;
   white-space: nowrap;
 }
 
@@ -690,14 +720,16 @@ button:focus-visible {
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  min-height: 1.65rem;
+  width: 1.65rem;
+  min-width: 1.65rem;
+  height: 1.65rem;
   border: 1px solid #161616;
   border-radius: 0;
   background: #fff;
   color: #111;
-  padding: 0.18rem 0.38rem;
+  padding: 0;
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 1rem;
   line-height: 1.1;
   text-decoration: none;
 }
@@ -705,6 +737,13 @@ button:focus-visible {
 .sort-task-card-action.danger {
   background: #fbefef;
   color: #111;
+}
+
+.sort-task-card-action.text-action {
+  width: auto;
+  min-width: 0;
+  padding: 0.18rem 0.38rem;
+  font-size: 0.82rem;
 }
 
 .sort-task-card-action:hover {
@@ -722,7 +761,7 @@ button:focus-visible {
 }
 
 .sort-task-card-input {
-  flex: 1 1 auto;
+  grid-column: 2 / -1;
   min-width: 0;
   width: 100%;
   border: 0;
@@ -737,6 +776,26 @@ button:focus-visible {
 
 .sort-task-card-input:focus {
   outline: 0;
+}
+
+.sort-cell-items .sort-task-card {
+  grid-template-columns: 12px minmax(0, 1fr);
+  align-items: start;
+}
+
+.sort-cell-items .sort-task-card-actions {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 0.2rem;
+}
+
+.sort-cell-items .sort-task-card-text {
+  max-height: none;
+  overflow: visible;
+}
+
+.sort-cell-items .sort-task-card-input {
+  grid-column: 2;
 }
 
 .sort-cell.drop-ready {
@@ -755,8 +814,58 @@ button:focus-visible {
   }
 
   .sort-matrix {
-    height: auto;
+    height: clamp(420px, 65vh, 600px);
     min-height: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .dq-task-editor {
+    font-size: 1.25rem;
+  }
+
+  .dq-task-row {
+    grid-template-columns: 3.8rem minmax(0, 1fr);
+  }
+
+  .dq-task-number {
+    padding-right: 0.65rem;
+    font-size: 1.25rem;
+  }
+
+  .dq-task-input {
+    padding-left: 0.75rem;
+  }
+
+  .sort-matrix-wrap {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .sort-axis-labels {
+    width: 42px;
+  }
+
+  .sort-axis-label {
+    font-size: 0.95rem;
+  }
+
+  .sort-cell {
+    padding: 0.6rem 0.45rem 0.55rem;
+  }
+
+  .sort-task-card {
+    grid-template-columns: 10px minmax(0, 1fr);
+    gap: 0.4rem;
+    padding: 0.35rem 0.4rem;
+  }
+
+  .sort-task-card-actions {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .sort-task-card-input {
+    grid-column: 2;
   }
 }
 

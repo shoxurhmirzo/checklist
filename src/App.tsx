@@ -1,11 +1,13 @@
 import {
   ChangeEvent,
+  ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react';
+import { flushSync } from 'react-dom';
 import {
   COLUMN_COUNT,
   createRow,
@@ -33,12 +35,16 @@ import type {
 } from './types';
 
 const A4_LANDSCAPE_RATIO = 297 / 210;
-const DIVIDE_AND_CONQUER_PROTECTED_LENGTH = DEFAULT_DIVIDE_AND_CONQUER_TEXT.length;
 const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
 const COMPLETED_MAGNETIC_DISTANCE = 60;
 const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
 type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard';
+
+interface DivideAndConquerDraftRow {
+  id: string;
+  text: string;
+}
 
 const DIVIDE_AND_CONQUER_SORT_BUCKETS: Array<{
   id: Exclude<DivideAndConquerBucket, 'unassigned'>;
@@ -112,60 +118,37 @@ const formatLogTime = (checkState: CheckState) => {
   }).format(date)}`;
 };
 
-const normalizeDivideAndConquerText = (value: string) => {
-  const text = value.trimStart();
-
-  if (!text) {
-    return DEFAULT_DIVIDE_AND_CONQUER_TEXT;
-  }
-
-  if (text.startsWith(DEFAULT_DIVIDE_AND_CONQUER_TEXT)) {
-    return text;
-  }
-
-  if (text.startsWith('1.')) {
-    return `${DEFAULT_DIVIDE_AND_CONQUER_TEXT}${text.slice(2).trimStart()}`;
-  }
-
-  if (text.startsWith('1')) {
-    return `${DEFAULT_DIVIDE_AND_CONQUER_TEXT}${text.slice(1).replace(/^[.\s]*/, '')}`;
-  }
-
-  return `${DEFAULT_DIVIDE_AND_CONQUER_TEXT}${text}`;
-};
-
 const buildDivideAndConquerLine = (lineNumber: number, content: string) =>
   `${lineNumber}.${DIVIDE_AND_CONQUER_ROW_SUFFIX}${content}`;
-
-const renumberDivideAndConquerText = (value: string) => {
-  const lines = value.split('\n');
-
-  if (lines.length === 0) {
-    return DEFAULT_DIVIDE_AND_CONQUER_TEXT;
-  }
-
-  return lines
-    .map((line, index) => buildDivideAndConquerLine(index + 1, line.replace(/^\s*\d+\.\s*/, '')))
-    .join('\n');
-};
 
 const makeDivideAndConquerTaskId = () =>
   typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-const getDivideAndConquerTaskTexts = (value: string) =>
-  value
-    .split('\n')
-    .map((line) => line.replace(/^\s*\d+\.\s*/, '').trim())
-    .filter((line) => line.length > 0);
+const stripDivideAndConquerLinePrefix = (line: string) => line.replace(/^\s*\d+\.\s*/, '');
 
-const parseDivideAndConquerTasks = (value: string): DivideAndConquerTask[] =>
-  getDivideAndConquerTaskTexts(value).map((text) => ({
-    id: makeDivideAndConquerTaskId(),
-    text,
-    bucket: 'unassigned' as const,
-  }));
+const createDivideAndConquerDraftRow = (text = ''): DivideAndConquerDraftRow => ({
+  id: makeDivideAndConquerTaskId(),
+  text,
+});
+
+const parseDivideAndConquerDraftRows = (value: string): DivideAndConquerDraftRow[] => {
+  const rows = value.split('\n').map((line) => createDivideAndConquerDraftRow(stripDivideAndConquerLinePrefix(line)));
+
+  return rows.length > 0 ? rows : [createDivideAndConquerDraftRow()];
+};
+
+const formatDivideAndConquerDraftRowsText = (rows: DivideAndConquerDraftRow[]) =>
+  rows.length > 0
+    ? rows.map((row, index) => buildDivideAndConquerLine(index + 1, row.text)).join('\n')
+    : DEFAULT_DIVIDE_AND_CONQUER_TEXT;
+
+const normalizeDivideAndConquerText = (value: string) =>
+  formatDivideAndConquerDraftRowsText(parseDivideAndConquerDraftRows(value));
+
+const getDivideAndConquerDraftTaskTexts = (rows: DivideAndConquerDraftRow[]) =>
+  rows.map((row) => row.text.trim()).filter((text) => text.length > 0);
 
 const formatDivideAndConquerTasksText = (tasks: DivideAndConquerTask[]) =>
   tasks.map((task, index) => buildDivideAndConquerLine(index + 1, task.text)).join('\n');
@@ -175,6 +158,10 @@ const App = () => {
   const [activeSheetId, setActiveSheetId] = useState<string>('');
   const [activeView, setActiveView] = useState<AppView>('checklist');
   const [divideAndConquerText, setDivideAndConquerText] = useState(DEFAULT_DIVIDE_AND_CONQUER_TEXT);
+  const [divideAndConquerDraftRows, setDivideAndConquerDraftRows] = useState<DivideAndConquerDraftRow[]>(() =>
+    parseDivideAndConquerDraftRows(DEFAULT_DIVIDE_AND_CONQUER_TEXT),
+  );
+  const divideAndConquerDraftRowsRef = useRef(divideAndConquerDraftRows);
   const [divideAndConquerItems, setDivideAndConquerItems] = useState<DivideAndConquerTask[]>(
     DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   );
@@ -187,21 +174,62 @@ const App = () => {
   const workspaceRef = useRef<HTMLElement | null>(null);
   const sheetWrapperRef = useRef<HTMLElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
-  const divideAndConquerRef = useRef<HTMLTextAreaElement | null>(null);
+  const divideAndConquerEditorRef = useRef<HTMLDivElement | null>(null);
   const completedZoneRef = useRef<HTMLElement | null>(null);
   const [sheetScale, setSheetScale] = useState(1);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
 
   const resizeDivideAndConquerEditor = () => {
-    const editor = divideAndConquerRef.current;
+    const editor = divideAndConquerEditorRef.current;
 
     if (!editor) {
       return;
     }
 
-    editor.style.height = 'auto';
-    editor.style.height = `${editor.scrollHeight}px`;
+    editor.querySelectorAll<HTMLTextAreaElement>('.dq-task-input').forEach((input) => {
+      input.style.height = 'auto';
+      input.style.height = `${input.scrollHeight}px`;
+    });
+  };
+
+  const focusDivideAndConquerDraftRow = (rowIndex: number, cursorPosition?: number) => {
+    requestAnimationFrame(() => {
+      const input = divideAndConquerEditorRef.current?.querySelector<HTMLTextAreaElement>(
+        `[data-dq-row-index="${rowIndex}"]`,
+      );
+
+      if (!input) {
+        return;
+      }
+
+      const nextCursorPosition = Math.min(cursorPosition ?? input.value.length, input.value.length);
+      input.focus();
+      input.setSelectionRange(nextCursorPosition, nextCursorPosition);
+    });
+  };
+
+  const commitDivideAndConquerDraftRows = (rows: DivideAndConquerDraftRow[], flush = false) => {
+    const nextRows = rows.length > 0 ? rows : [createDivideAndConquerDraftRow()];
+    const applyRows = () => {
+      setDivideAndConquerDraftRows(nextRows);
+      setDivideAndConquerText(formatDivideAndConquerDraftRowsText(nextRows));
+    };
+
+    divideAndConquerDraftRowsRef.current = nextRows;
+
+    if (flush) {
+      flushSync(applyRows);
+      return;
+    }
+
+    applyRows();
+  };
+
+  const syncDivideAndConquerDraftRowsFromText = (value: string) => {
+    const normalizedText = normalizeDivideAndConquerText(value);
+
+    commitDivideAndConquerDraftRows(parseDivideAndConquerDraftRows(normalizedText));
   };
 
   useEffect(() => {
@@ -215,7 +243,7 @@ const App = () => {
 
         setSheets(storedState.sheets);
         setActiveSheetId(storedState.sheets[0]?.id ?? '');
-        setDivideAndConquerText(normalizeDivideAndConquerText(storedState.divideAndConquerText));
+        syncDivideAndConquerDraftRowsFromText(storedState.divideAndConquerText);
         setDivideAndConquerItems(storedState.divideAndConquerItems);
         setStatus('Checklist loaded');
       })
@@ -334,19 +362,25 @@ const App = () => {
     completed: divideAndConquerItems.filter((item) => item.bucket === 'completed'),
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
-  const divideAndConquerTaskCount = getDivideAndConquerTaskTexts(divideAndConquerText).length;
+  const divideAndConquerTaskCount = getDivideAndConquerDraftTaskTexts(divideAndConquerDraftRows).length;
   const canSortDivideAndConquerTasks = divideAndConquerTaskCount >= MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT;
+
+  const syncDivideAndConquerDraftRowsFromTasks = (tasks: DivideAndConquerTask[]) => {
+    const nextText = formatDivideAndConquerTasksText(tasks);
+
+    syncDivideAndConquerDraftRowsFromText(nextText || DEFAULT_DIVIDE_AND_CONQUER_TEXT);
+  };
 
   const updateDivideAndConquerTaskText = (taskId: string, text: string) => {
     const nextItems = divideAndConquerItems.map((item) => (item.id === taskId ? { ...item, text } : item));
     setDivideAndConquerItems(nextItems);
-    setDivideAndConquerText(formatDivideAndConquerTasksText(nextItems));
+    syncDivideAndConquerDraftRowsFromTasks(nextItems);
   };
 
   const deleteDivideAndConquerTask = (taskId: string) => {
     const nextItems = divideAndConquerItems.filter((item) => item.id !== taskId);
     setDivideAndConquerItems(nextItems);
-    setDivideAndConquerText(formatDivideAndConquerTasksText(nextItems));
+    syncDivideAndConquerDraftRowsFromTasks(nextItems);
 
     if (editingDivideAndConquerTaskId === taskId) {
       setEditingDivideAndConquerTaskId(null);
@@ -356,6 +390,7 @@ const App = () => {
   const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask) => {
     const isSourceTaskPlaceholder = task.bucket === 'unassigned' && draggedTaskId === task.id;
     const isEditing = editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
+    const usesTextActions = task.bucket === 'unassigned';
 
     return (
       <div
@@ -398,7 +433,7 @@ const App = () => {
             <span className="sort-task-card-actions">
               <button
                 type="button"
-                className="sort-task-card-action"
+                className={`sort-task-card-action ${usesTextActions ? 'text-action' : ''}`}
                 aria-label="Edit task"
                 draggable={false}
                 onClick={(event) => {
@@ -406,12 +441,13 @@ const App = () => {
                   setEditingDivideAndConquerTaskId(task.id);
                 }}
                 onDragStart={(event) => event.preventDefault()}
+                title="Edit task"
               >
-                edit
+                {usesTextActions ? 'edit' : <span aria-hidden="true">✎</span>}
               </button>
               <button
                 type="button"
-                className="sort-task-card-action danger"
+                className={`sort-task-card-action danger ${usesTextActions ? 'text-action' : ''}`}
                 aria-label="Delete task"
                 draggable={false}
                 onClick={(event) => {
@@ -419,8 +455,9 @@ const App = () => {
                   deleteDivideAndConquerTask(task.id);
                 }}
                 onDragStart={(event) => event.preventDefault()}
+                title="Delete task"
               >
-                delete
+                {usesTextActions ? 'delete' : <span aria-hidden="true">×</span>}
               </button>
             </span>
           </>
@@ -453,23 +490,7 @@ const App = () => {
       return;
     }
 
-    const normalizedText = normalizeDivideAndConquerText(divideAndConquerText);
-
-    if (normalizedText !== divideAndConquerText) {
-      setDivideAndConquerText(normalizedText);
-    }
-
-    requestAnimationFrame(() => {
-      const editor = divideAndConquerRef.current;
-
-      if (!editor) {
-        return;
-      }
-
-      const cursorPosition = Math.max(DIVIDE_AND_CONQUER_PROTECTED_LENGTH, editor.value.length);
-      editor.focus();
-      editor.setSelectionRange(cursorPosition, cursorPosition);
-    });
+    focusDivideAndConquerDraftRow(Math.max(0, divideAndConquerDraftRows.length - 1));
   }, [activeView]);
 
   useLayoutEffect(() => {
@@ -478,7 +499,7 @@ const App = () => {
     }
 
     resizeDivideAndConquerEditor();
-  }, [activeView, divideAndConquerText]);
+  }, [activeView, divideAndConquerDraftRows]);
 
   useEffect(() => {
     if (activeView !== 'divideAndConquer') {
@@ -575,7 +596,7 @@ const App = () => {
       setSheets(normalizedSheets);
       setActiveSheetId(normalizedSheets[0]?.id ?? '');
       if (typeof parsed.divideAndConquerText === 'string') {
-        setDivideAndConquerText(normalizeDivideAndConquerText(parsed.divideAndConquerText));
+        syncDivideAndConquerDraftRowsFromText(parsed.divideAndConquerText);
       }
       if (Array.isArray((parsed as { divideAndConquerItems?: unknown }).divideAndConquerItems)) {
         setDivideAndConquerItems(
@@ -619,106 +640,122 @@ const App = () => {
     setConfirmState(null);
   };
 
-  const handleDivideAndConquerChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    const editor = event.currentTarget;
-    const rawValue = editor.value;
-    const normalizedValue = normalizeDivideAndConquerText(rawValue);
-    const cursorShift = normalizedValue.length - rawValue.length;
-    const nextCursorPosition = Math.max(
-      DIVIDE_AND_CONQUER_PROTECTED_LENGTH,
-      editor.selectionStart + cursorShift,
+  const handleDivideAndConquerDraftChange = (rowId: string, text: string) => {
+    const currentRows = divideAndConquerDraftRowsRef.current;
+
+    commitDivideAndConquerDraftRows(
+      currentRows.map((row) => (row.id === rowId ? { ...row, text } : row)),
+      true,
     );
-
-    setDivideAndConquerText(normalizedValue);
-
-    if (normalizedValue !== rawValue || editor.selectionStart < DIVIDE_AND_CONQUER_PROTECTED_LENGTH) {
-      requestAnimationFrame(() => {
-        divideAndConquerRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
-      });
-    }
   };
 
-  const keepDivideAndConquerCursorPastPrefix = () => {
-    const editor = divideAndConquerRef.current;
+  const handleDivideAndConquerDraftKeyDown = (
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+    rowIndex: number,
+  ) => {
+    const currentRows = divideAndConquerDraftRowsRef.current;
+    const currentRow = currentRows[rowIndex];
 
-    if (!editor || editor.selectionStart >= DIVIDE_AND_CONQUER_PROTECTED_LENGTH) {
+    if (!currentRow) {
       return;
     }
 
-    editor.setSelectionRange(
-      DIVIDE_AND_CONQUER_PROTECTED_LENGTH,
-      Math.max(editor.selectionEnd, DIVIDE_AND_CONQUER_PROTECTED_LENGTH),
-    );
-  };
-
-  const handleDivideAndConquerKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     const { selectionStart, selectionEnd, value } = event.currentTarget;
-    const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
-    const lineEnd = value.indexOf('\n', lineStart);
-    const currentLine = value.slice(lineStart, lineEnd === -1 ? value.length : lineEnd);
-    const lineMatch = currentLine.match(/^(\s*)(\d+)\.\s*/);
-    const linePrefixLength = lineMatch?.[0].length ?? 0;
-    const lineNumber = lineMatch ? Number(lineMatch[2]) : 1;
-    const selectionTouchesPrefix = selectionStart < DIVIDE_AND_CONQUER_PROTECTED_LENGTH;
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+
+      const sourceText = value.length > 0 || currentRow.text.length === 0 ? value : currentRow.text;
+      const splitStart = value.length > 0 ? selectionStart : sourceText.length;
+      const splitEnd = value.length > 0 ? selectionEnd : sourceText.length;
+      const nextRow = createDivideAndConquerDraftRow(sourceText.slice(splitEnd));
+      const nextRows = [
+        ...currentRows.slice(0, rowIndex),
+        { ...currentRow, text: sourceText.slice(0, splitStart) },
+        nextRow,
+        ...currentRows.slice(rowIndex + 1),
+      ];
+
+      commitDivideAndConquerDraftRows(nextRows, true);
+      focusDivideAndConquerDraftRow(rowIndex + 1, 0);
+      return;
+    }
+
+    if (event.key === 'Backspace' && selectionStart === 0 && selectionEnd === 0 && rowIndex > 0) {
+      event.preventDefault();
+
+      const previousRow = currentRows[rowIndex - 1];
+      const nextCursorPosition = previousRow.text.length;
+      const nextRows = [
+        ...currentRows.slice(0, rowIndex - 1),
+        { ...previousRow, text: `${previousRow.text}${currentRow.text}` },
+        ...currentRows.slice(rowIndex + 1),
+      ];
+
+      commitDivideAndConquerDraftRows(nextRows, true);
+      focusDivideAndConquerDraftRow(rowIndex - 1, nextCursorPosition);
+      return;
+    }
 
     if (
-      event.key === 'Backspace' &&
-      selectionStart === selectionEnd &&
-      lineNumber > 1 &&
-      selectionStart <= lineStart + linePrefixLength
+      event.key === 'Delete' &&
+      currentRow.text.length === 0 &&
+      currentRows.length > 1
     ) {
       event.preventDefault();
 
-      const lines = value.split('\n');
-      const currentLineIndex = value.slice(0, lineStart).split('\n').length - 1;
-      lines.splice(currentLineIndex, 1);
+      const nextRows = currentRows.filter((row) => row.id !== currentRow.id);
+      const nextFocusIndex = Math.min(rowIndex, nextRows.length - 1);
 
-      const nextValue = lines.length > 0 ? renumberDivideAndConquerText(lines.join('\n')) : DEFAULT_DIVIDE_AND_CONQUER_TEXT;
-      const nextCursorPosition = Math.max(DIVIDE_AND_CONQUER_PROTECTED_LENGTH, lineStart - 1);
+      commitDivideAndConquerDraftRows(nextRows, true);
+      focusDivideAndConquerDraftRow(nextFocusIndex, 0);
+    }
+  };
 
-      setDivideAndConquerText(nextValue);
+  const handleDivideAndConquerDraftPaste = (
+    event: ReactClipboardEvent<HTMLTextAreaElement>,
+    rowIndex: number,
+  ) => {
+    const pastedText = event.clipboardData.getData('text/plain').replace(/\r\n?/g, '\n');
 
-      requestAnimationFrame(() => {
-        divideAndConquerRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
-      });
-
+    if (!pastedText.includes('\n')) {
       return;
     }
 
-    if (
-      (event.key === 'Backspace' &&
-        (selectionStart <= DIVIDE_AND_CONQUER_PROTECTED_LENGTH || selectionTouchesPrefix)) ||
-      (event.key === 'Delete' && selectionTouchesPrefix)
-    ) {
-      event.preventDefault();
-      keepDivideAndConquerCursorPastPrefix();
-      return;
-    }
+    const currentRows = divideAndConquerDraftRowsRef.current;
+    const currentRow = currentRows[rowIndex];
 
-    if (event.key !== 'Enter' || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) {
-      return;
-    }
-
-    if (!lineMatch) {
+    if (!currentRow) {
       return;
     }
 
     event.preventDefault();
 
-    const [, indentation, currentNumber] = lineMatch;
-    const nextLine = `\n${indentation}${Number(currentNumber) + 1}.        `;
-    const nextValue = `${value.slice(0, selectionStart)}${nextLine}${value.slice(selectionEnd)}`;
-    const nextCursorPosition = selectionStart + nextLine.length;
+    const lines = pastedText.split('\n').map(stripDivideAndConquerLinePrefix);
+    const { selectionStart, selectionEnd, value } = event.currentTarget;
+    const beforeSelection = value.slice(0, selectionStart);
+    const afterSelection = value.slice(selectionEnd);
+    const lastLineIndex = lines.length - 1;
+    const pastedRows = lines.slice(1).map((line, index) =>
+      createDivideAndConquerDraftRow(index === lastLineIndex - 1 ? `${line}${afterSelection}` : line),
+    );
+    const nextRows = [
+      ...currentRows.slice(0, rowIndex),
+      { ...currentRow, text: `${beforeSelection}${lines[0] ?? ''}` },
+      ...pastedRows,
+      ...currentRows.slice(rowIndex + 1),
+    ];
 
-    setDivideAndConquerText(nextValue);
-
-    requestAnimationFrame(() => {
-      divideAndConquerRef.current?.setSelectionRange(nextCursorPosition, nextCursorPosition);
-    });
+    commitDivideAndConquerDraftRows(nextRows, true);
+    focusDivideAndConquerDraftRow(rowIndex + pastedRows.length, lines[lastLineIndex]?.length ?? 0);
   };
 
   const handleStartSorting = () => {
-    const tasks = parseDivideAndConquerTasks(divideAndConquerText);
+    const tasks = getDivideAndConquerDraftTaskTexts(divideAndConquerDraftRowsRef.current).map((text) => ({
+      id: makeDivideAndConquerTaskId(),
+      text,
+      bucket: 'unassigned' as const,
+    }));
 
     if (tasks.length < MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT) {
       setStatus(`Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks before sorting`);
@@ -898,17 +935,26 @@ const App = () => {
           <section className="dq-page" aria-labelledby="dq-title">
             <div className="dq-editor-shell">
               <h1 id="dq-title">Dump your tasks</h1>
-              <textarea
-                ref={divideAndConquerRef}
-                className="dq-task-editor"
-                rows={1}
-                value={divideAndConquerText}
-                onChange={handleDivideAndConquerChange}
-                onKeyDown={handleDivideAndConquerKeyDown}
-                onSelect={keepDivideAndConquerCursorPastPrefix}
-                aria-label="D&Q tasks"
-                spellCheck
-              />
+              <div ref={divideAndConquerEditorRef} className="dq-task-editor" role="list" aria-label="D&Q tasks">
+                {divideAndConquerDraftRows.map((row, index) => (
+                  <div key={row.id} className="dq-task-row" role="listitem">
+                    <span className="dq-task-number" aria-hidden="true">
+                      {index + 1}.
+                    </span>
+                    <textarea
+                      className="dq-task-input"
+                      data-dq-row-index={index}
+                      rows={1}
+                      value={row.text}
+                      onChange={(event) => handleDivideAndConquerDraftChange(row.id, event.target.value)}
+                      onKeyDown={(event) => handleDivideAndConquerDraftKeyDown(event, index)}
+                      onPaste={(event) => handleDivideAndConquerDraftPaste(event, index)}
+                      aria-label={`Task ${index + 1}`}
+                      spellCheck
+                    />
+                  </div>
+                ))}
+              </div>
               <div className="dq-editor-actions">
                 <button
                   type="button"
