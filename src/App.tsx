@@ -40,14 +40,27 @@ const COMPLETED_MAGNETIC_DISTANCE = 60;
 const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
 type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard';
+type DivideAndConquerQuadrantBucket = Exclude<DivideAndConquerBucket, 'unassigned' | 'completed'>;
 
 interface DivideAndConquerDraftRow {
   id: string;
   text: string;
 }
 
+interface QuadrantScrollState {
+  isScrollable: boolean;
+  isAtBottom: boolean;
+}
+
+const DIVIDE_AND_CONQUER_QUADRANT_BUCKETS: DivideAndConquerQuadrantBucket[] = [
+  'productive-attractive',
+  'productive-unattractive',
+  'unproductive-attractive',
+  'unproductive-unattractive',
+];
+
 const DIVIDE_AND_CONQUER_SORT_BUCKETS: Array<{
-  id: Exclude<DivideAndConquerBucket, 'unassigned'>;
+  id: DivideAndConquerQuadrantBucket;
   title: string;
   subtitle: string;
   emphasis: string;
@@ -150,6 +163,36 @@ const normalizeDivideAndConquerText = (value: string) =>
 const getDivideAndConquerDraftTaskTexts = (rows: DivideAndConquerDraftRow[]) =>
   rows.map((row) => row.text.trim()).filter((text) => text.length > 0);
 
+const createDefaultQuadrantScrollState = (): Record<DivideAndConquerQuadrantBucket, QuadrantScrollState> => ({
+  'productive-attractive': { isScrollable: false, isAtBottom: true },
+  'productive-unattractive': { isScrollable: false, isAtBottom: true },
+  'unproductive-attractive': { isScrollable: false, isAtBottom: true },
+  'unproductive-unattractive': { isScrollable: false, isAtBottom: true },
+});
+
+const isDivideAndConquerQuadrantBucket = (bucket: DivideAndConquerBucket): bucket is DivideAndConquerQuadrantBucket =>
+  DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.includes(bucket as DivideAndConquerQuadrantBucket);
+
+const reconcileDivideAndConquerItemsWithDraftRows = (
+  rows: DivideAndConquerDraftRow[],
+  currentItems: DivideAndConquerTask[],
+): DivideAndConquerTask[] => {
+  const existingItemsByText = new Map<string, DivideAndConquerTask[]>();
+
+  currentItems.forEach((item) => {
+    const matchingItems = existingItemsByText.get(item.text) ?? [];
+    matchingItems.push(item);
+    existingItemsByText.set(item.text, matchingItems);
+  });
+
+  return getDivideAndConquerDraftTaskTexts(rows).map((text) => {
+    const matchingItems = existingItemsByText.get(text);
+    const existingItem = matchingItems?.shift();
+
+    return existingItem ?? { id: makeDivideAndConquerTaskId(), text, bucket: 'unassigned' as const };
+  });
+};
+
 const formatDivideAndConquerTasksText = (tasks: DivideAndConquerTask[]) =>
   tasks.map((task, index) => buildDivideAndConquerLine(index + 1, task.text)).join('\n');
 
@@ -176,6 +219,13 @@ const App = () => {
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const divideAndConquerEditorRef = useRef<HTMLDivElement | null>(null);
   const completedZoneRef = useRef<HTMLElement | null>(null);
+  const quadrantListRefs = useRef<Record<DivideAndConquerQuadrantBucket, HTMLDivElement | null>>({
+    'productive-attractive': null,
+    'productive-unattractive': null,
+    'unproductive-attractive': null,
+    'unproductive-unattractive': null,
+  });
+  const [quadrantScrollStates, setQuadrantScrollStates] = useState(createDefaultQuadrantScrollState);
   const [sheetScale, setSheetScale] = useState(1);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
@@ -230,6 +280,44 @@ const App = () => {
     const normalizedText = normalizeDivideAndConquerText(value);
 
     commitDivideAndConquerDraftRows(parseDivideAndConquerDraftRows(normalizedText));
+  };
+
+  const getQuadrantScrollState = (element: HTMLElement | null): QuadrantScrollState => {
+    if (!element) {
+      return { isScrollable: false, isAtBottom: true };
+    }
+
+    const maxScrollTop = element.scrollHeight - element.clientHeight;
+    const isScrollable = maxScrollTop > 1;
+
+    return {
+      isScrollable,
+      isAtBottom: !isScrollable || element.scrollTop >= maxScrollTop - 2,
+    };
+  };
+
+  const updateQuadrantScrollState = (bucket: DivideAndConquerQuadrantBucket) => {
+    const nextScrollState = getQuadrantScrollState(quadrantListRefs.current[bucket]);
+
+    setQuadrantScrollStates((currentStates) => {
+      const currentScrollState = currentStates[bucket];
+
+      if (
+        currentScrollState.isScrollable === nextScrollState.isScrollable &&
+        currentScrollState.isAtBottom === nextScrollState.isAtBottom
+      ) {
+        return currentStates;
+      }
+
+      return {
+        ...currentStates,
+        [bucket]: nextScrollState,
+      };
+    });
+  };
+
+  const updateAllQuadrantScrollStates = () => {
+    DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.forEach(updateQuadrantScrollState);
   };
 
   useEffect(() => {
@@ -364,6 +452,33 @@ const App = () => {
   const completedTasks = divideAndConquerBuckets.completed;
   const divideAndConquerTaskCount = getDivideAndConquerDraftTaskTexts(divideAndConquerDraftRows).length;
   const canSortDivideAndConquerTasks = divideAndConquerTaskCount >= MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT;
+  const hasMatrixQuadrantTasks = DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.some(
+    (bucket) => divideAndConquerBuckets[bucket].length > 0,
+  );
+
+  useLayoutEffect(() => {
+    if (activeView !== 'sortBoard') {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(updateAllQuadrantScrollStates);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [activeView, divideAndConquerItems, editingDivideAndConquerTaskId]);
+
+  useEffect(() => {
+    if (activeView !== 'sortBoard') {
+      return;
+    }
+
+    window.addEventListener('resize', updateAllQuadrantScrollStates);
+
+    return () => {
+      window.removeEventListener('resize', updateAllQuadrantScrollStates);
+    };
+  }, [activeView]);
 
   const syncDivideAndConquerDraftRowsFromTasks = (tasks: DivideAndConquerTask[]) => {
     const nextText = formatDivideAndConquerTasksText(tasks);
@@ -751,20 +866,73 @@ const App = () => {
   };
 
   const handleStartSorting = () => {
-    const tasks = getDivideAndConquerDraftTaskTexts(divideAndConquerDraftRowsRef.current).map((text) => ({
-      id: makeDivideAndConquerTaskId(),
-      text,
-      bucket: 'unassigned' as const,
-    }));
+    const draftRows = divideAndConquerDraftRowsRef.current;
+    const taskCount = getDivideAndConquerDraftTaskTexts(draftRows).length;
 
-    if (tasks.length < MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT) {
+    if (taskCount < MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT) {
       setStatus(`Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks before sorting`);
       return;
     }
 
-    setDivideAndConquerItems(tasks);
+    setDivideAndConquerItems((currentItems) => reconcileDivideAndConquerItemsWithDraftRows(draftRows, currentItems));
     setActiveView('sortBoard');
     setStatus('Tasks ready to sort');
+  };
+
+  const handleClearMatrixQuadrants = () => {
+    if (!hasMatrixQuadrantTasks) {
+      return;
+    }
+
+    setDivideAndConquerItems((currentItems) =>
+      currentItems.map((item) =>
+        isDivideAndConquerQuadrantBucket(item.bucket) ? { ...item, bucket: 'unassigned' } : item,
+      ),
+    );
+    setDraggedTaskId(null);
+    setIsCompletedMagnetic(false);
+    setStatus('Matrix quadrants cleared');
+  };
+
+  const scrollQuadrantTaskListToBottom = (bucket: DivideAndConquerQuadrantBucket) => {
+    const taskList = quadrantListRefs.current[bucket];
+
+    if (!taskList) {
+      return;
+    }
+
+    taskList.scrollTo({
+      top: taskList.scrollHeight,
+      behavior: 'smooth',
+    });
+
+    window.setTimeout(() => updateQuadrantScrollState(bucket), 320);
+  };
+
+  const renderQuadrantScrollIndicator = (
+    bucket: DivideAndConquerQuadrantBucket,
+    tasks: DivideAndConquerTask[],
+  ) => {
+    const scrollState = quadrantScrollStates[bucket];
+    const isVisible = tasks.length > 0 && scrollState.isScrollable && !scrollState.isAtBottom;
+
+    return (
+      <button
+        type="button"
+        className={`sort-cell-scroll-indicator ${isVisible ? 'visible' : ''}`}
+        aria-label={`Scroll ${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'} to bottom`}
+        aria-hidden={!isVisible}
+        tabIndex={isVisible ? 0 : -1}
+        disabled={!isVisible}
+        onClick={(event) => {
+          event.stopPropagation();
+          scrollQuadrantTaskListToBottom(bucket);
+        }}
+        onDragStart={(event) => event.preventDefault()}
+      >
+        {tasks.length}
+      </button>
+    );
   };
 
   const moveDivideAndConquerTask = (taskId: string, bucket: DivideAndConquerBucket) => {
@@ -981,7 +1149,17 @@ const App = () => {
             <div className="sort-board-shell">
               <div className="sort-board-intro">
                 <h1 id="sort-board-title">Sort them out</h1>
-                <p>Drag each task into the box that fits it best.</p>
+                <div className="sort-board-intro-actions">
+                  <p>Drag each task into the box that fits it best.</p>
+                  <button
+                    type="button"
+                    className="sort-clear-all-button"
+                    onClick={handleClearMatrixQuadrants}
+                    disabled={!hasMatrixQuadrantTasks}
+                  >
+                    clear all
+                  </button>
+                </div>
               </div>
 
               <div className="sort-board-layout">
@@ -1021,9 +1199,19 @@ const App = () => {
                           onDragOver={handleDivideAndConquerDragOver}
                           onDrop={(event) => handleDivideAndConquerDrop(event, 'productive-attractive')}
                         >
-                          <div className="sort-cell-items">
+                          <div
+                            ref={(element) => {
+                              quadrantListRefs.current['productive-attractive'] = element;
+                            }}
+                            className="sort-cell-items"
+                            onScroll={() => updateQuadrantScrollState('productive-attractive')}
+                          >
                             {renderDivideAndConquerQuadrantItems(divideAndConquerBuckets['productive-attractive'])}
                           </div>
+                          {renderQuadrantScrollIndicator(
+                            'productive-attractive',
+                            divideAndConquerBuckets['productive-attractive'],
+                          )}
                           <div className="sort-cell-footer">(Must To-Do)</div>
                         </div>
                         <div
@@ -1031,9 +1219,19 @@ const App = () => {
                           onDragOver={handleDivideAndConquerDragOver}
                           onDrop={(event) => handleDivideAndConquerDrop(event, 'productive-unattractive')}
                         >
-                          <div className="sort-cell-items">
+                          <div
+                            ref={(element) => {
+                              quadrantListRefs.current['productive-unattractive'] = element;
+                            }}
+                            className="sort-cell-items"
+                            onScroll={() => updateQuadrantScrollState('productive-unattractive')}
+                          >
                             {renderDivideAndConquerQuadrantItems(divideAndConquerBuckets['productive-unattractive'])}
                           </div>
+                          {renderQuadrantScrollIndicator(
+                            'productive-unattractive',
+                            divideAndConquerBuckets['productive-unattractive'],
+                          )}
                           <div className="sort-cell-footer">(Enjoy)</div>
                         </div>
                         <div
@@ -1041,9 +1239,19 @@ const App = () => {
                           onDragOver={handleDivideAndConquerDragOver}
                           onDrop={(event) => handleDivideAndConquerDrop(event, 'unproductive-attractive')}
                         >
-                          <div className="sort-cell-items">
+                          <div
+                            ref={(element) => {
+                              quadrantListRefs.current['unproductive-attractive'] = element;
+                            }}
+                            className="sort-cell-items"
+                            onScroll={() => updateQuadrantScrollState('unproductive-attractive')}
+                          >
                             {renderDivideAndConquerQuadrantItems(divideAndConquerBuckets['unproductive-attractive'])}
                           </div>
+                          {renderQuadrantScrollIndicator(
+                            'unproductive-attractive',
+                            divideAndConquerBuckets['unproductive-attractive'],
+                          )}
                           <div className="sort-cell-footer">(Avoid)</div>
                         </div>
                         <div
@@ -1051,9 +1259,19 @@ const App = () => {
                           onDragOver={handleDivideAndConquerDragOver}
                           onDrop={(event) => handleDivideAndConquerDrop(event, 'unproductive-unattractive')}
                         >
-                          <div className="sort-cell-items">
+                          <div
+                            ref={(element) => {
+                              quadrantListRefs.current['unproductive-unattractive'] = element;
+                            }}
+                            className="sort-cell-items"
+                            onScroll={() => updateQuadrantScrollState('unproductive-unattractive')}
+                          >
                             {renderDivideAndConquerQuadrantItems(divideAndConquerBuckets['unproductive-unattractive'])}
                           </div>
+                          {renderQuadrantScrollIndicator(
+                            'unproductive-unattractive',
+                            divideAndConquerBuckets['unproductive-unattractive'],
+                          )}
                           <div className="sort-cell-footer">(Eliminate)</div>
                         </div>
                       </div>

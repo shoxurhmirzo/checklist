@@ -338,6 +338,38 @@ button:focus-visible {
   color: #333;
 }
 
+.sort-board-intro-actions {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.sort-clear-all-button {
+  border: 0;
+  background: transparent;
+  color: #245b67;
+  padding: 0;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sort-clear-all-button:hover {
+  color: #123b44;
+  background: transparent;
+}
+
+.sort-clear-all-button:disabled,
+.sort-clear-all-button:disabled:hover {
+  color: #8a969b;
+  background: transparent;
+  cursor: default;
+  text-decoration-color: transparent;
+}
+
 .sort-board-layout {
   display: grid;
   grid-template-columns: minmax(360px, 0.92fr) minmax(0, 1.08fr);
@@ -544,6 +576,7 @@ button:focus-visible {
 }
 
 .sort-cell {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -606,6 +639,54 @@ button:focus-visible {
   padding-top: 0.75rem;
   text-align: center;
   font-weight: 600;
+}
+
+.sort-cell-scroll-indicator {
+  position: absolute;
+  left: 50%;
+  bottom: 2.85rem;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.82);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1;
+  box-shadow:
+    0 10px 24px rgba(15, 23, 42, 0.2),
+    0 0 0 1px rgba(255, 255, 255, 0.14) inset;
+  transform: translateX(-50%) translateY(0.4rem) scale(0.88);
+  opacity: 0;
+  pointer-events: none;
+  backdrop-filter: blur(8px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    background-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.sort-cell-scroll-indicator.visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.sort-cell-scroll-indicator.visible:hover {
+  background: rgba(17, 24, 39, 0.92);
+  box-shadow:
+    0 12px 28px rgba(15, 23, 42, 0.24),
+    0 0 0 1px rgba(255, 255, 255, 0.18) inset;
+}
+
+.sort-cell-scroll-indicator:disabled {
+  cursor: default;
 }
 
 .sort-cell-empty-state {
