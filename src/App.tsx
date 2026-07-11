@@ -22,6 +22,7 @@ import {
   createBackupPayload,
   isValidBackupPayload,
   loadAppState,
+  normalizeCurrentFocusTaskId,
   normalizeSheets,
   saveAppState,
 } from './storage';
@@ -41,6 +42,7 @@ const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
 type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard';
 type DivideAndConquerQuadrantBucket = Exclude<DivideAndConquerBucket, 'unassigned' | 'completed'>;
+type DivideAndConquerDropPlacement = 'before' | 'after';
 
 interface DivideAndConquerDraftRow {
   id: string;
@@ -50,6 +52,11 @@ interface DivideAndConquerDraftRow {
 interface QuadrantScrollState {
   isScrollable: boolean;
   isAtBottom: boolean;
+}
+
+interface DragInsertionTarget {
+  taskId: string;
+  placement: DivideAndConquerDropPlacement;
 }
 
 const DIVIDE_AND_CONQUER_QUADRANT_BUCKETS: DivideAndConquerQuadrantBucket[] = [
@@ -208,7 +215,9 @@ const App = () => {
   const [divideAndConquerItems, setDivideAndConquerItems] = useState<DivideAndConquerTask[]>(
     DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   );
+  const [currentFocusTaskId, setCurrentFocusTaskId] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
   const [editingDivideAndConquerTaskId, setEditingDivideAndConquerTaskId] = useState<string | null>(null);
   const [isCompletedMagnetic, setIsCompletedMagnetic] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -333,6 +342,7 @@ const App = () => {
         setActiveSheetId(storedState.sheets[0]?.id ?? '');
         syncDivideAndConquerDraftRowsFromText(storedState.divideAndConquerText);
         setDivideAndConquerItems(storedState.divideAndConquerItems);
+        setCurrentFocusTaskId(storedState.currentFocusTaskId);
         setStatus('Checklist loaded');
       })
       .catch(() => {
@@ -361,10 +371,10 @@ const App = () => {
       return;
     }
 
-    void saveAppState({ sheets, divideAndConquerText, divideAndConquerItems })
+    void saveAppState({ sheets, divideAndConquerText, divideAndConquerItems, currentFocusTaskId })
       .then(() => setStatus('All changes saved locally'))
       .catch(() => setStatus('Save failed. Export a backup after your next successful save.'));
-  }, [divideAndConquerItems, divideAndConquerText, isLoaded, sheets]);
+  }, [currentFocusTaskId, divideAndConquerItems, divideAndConquerText, isLoaded, sheets]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -439,15 +449,25 @@ const App = () => {
     )
     : { plus: 0, minus: 0 };
 
+  const currentFocusTask = currentFocusTaskId
+    ? divideAndConquerItems.find((item) => item.id === currentFocusTaskId) ?? null
+    : null;
+  const visibleDivideAndConquerItems = currentFocusTaskId
+    ? divideAndConquerItems.filter((item) => item.id !== currentFocusTaskId)
+    : divideAndConquerItems;
   const divideAndConquerBuckets = {
-    unassigned: divideAndConquerItems.filter((item) => item.bucket === 'unassigned'),
-    'productive-attractive': divideAndConquerItems.filter((item) => item.bucket === 'productive-attractive'),
-    'productive-unattractive': divideAndConquerItems.filter((item) => item.bucket === 'productive-unattractive'),
-    'unproductive-attractive': divideAndConquerItems.filter((item) => item.bucket === 'unproductive-attractive'),
-    'unproductive-unattractive': divideAndConquerItems.filter(
+    unassigned: visibleDivideAndConquerItems.filter((item) => item.bucket === 'unassigned'),
+    'productive-attractive': visibleDivideAndConquerItems.filter((item) => item.bucket === 'productive-attractive'),
+    'productive-unattractive': visibleDivideAndConquerItems.filter(
+      (item) => item.bucket === 'productive-unattractive',
+    ),
+    'unproductive-attractive': visibleDivideAndConquerItems.filter(
+      (item) => item.bucket === 'unproductive-attractive',
+    ),
+    'unproductive-unattractive': visibleDivideAndConquerItems.filter(
       (item) => item.bucket === 'unproductive-unattractive',
     ),
-    completed: divideAndConquerItems.filter((item) => item.bucket === 'completed'),
+    completed: visibleDivideAndConquerItems.filter((item) => item.bucket === 'completed'),
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
   const divideAndConquerTaskCount = getDivideAndConquerDraftTaskTexts(divideAndConquerDraftRows).length;
@@ -455,6 +475,15 @@ const App = () => {
   const hasMatrixQuadrantTasks = DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.some(
     (bucket) => divideAndConquerBuckets[bucket].length > 0,
   );
+  const hasSortableStateToClear = hasMatrixQuadrantTasks || currentFocusTask !== null;
+
+  useEffect(() => {
+    if (!currentFocusTaskId || currentFocusTask) {
+      return;
+    }
+
+    setCurrentFocusTaskId(null);
+  }, [currentFocusTask, currentFocusTaskId]);
 
   useLayoutEffect(() => {
     if (activeView !== 'sortBoard') {
@@ -500,12 +529,18 @@ const App = () => {
     if (editingDivideAndConquerTaskId === taskId) {
       setEditingDivideAndConquerTaskId(null);
     }
+
+    if (currentFocusTaskId === taskId) {
+      setCurrentFocusTaskId(null);
+    }
   };
 
   const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask) => {
-    const isSourceTaskPlaceholder = task.bucket === 'unassigned' && draggedTaskId === task.id;
+    const isSourceTaskPlaceholder = draggedTaskId === task.id;
     const isEditing = editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
     const usesTextActions = task.bucket === 'unassigned';
+    const insertionClass =
+      dragInsertionTarget?.taskId === task.id ? `insert-${dragInsertionTarget.placement}` : '';
 
     return (
       <div
@@ -513,10 +548,13 @@ const App = () => {
         role="group"
         className={`sort-task-card ${task.bucket === 'completed' ? 'completed' : ''} ${
           draggedTaskId === task.id ? 'dragging' : ''
-        } ${isSourceTaskPlaceholder ? 'source-placeholder' : ''}`}
+        } ${isSourceTaskPlaceholder ? 'source-placeholder' : ''} ${insertionClass}`}
         draggable={!isEditing}
         onDragStart={(event) => handleDivideAndConquerDragStart(event, task.id)}
         onDragEnd={handleDivideAndConquerDragEnd}
+        onDragOver={(event) => handleDivideAndConquerTaskCardDragOver(event, task)}
+        onDragLeave={(event) => handleDivideAndConquerTaskCardDragLeave(event, task.id)}
+        onDrop={(event) => handleDivideAndConquerTaskCardDrop(event, task)}
       >
         <span className="sort-task-card-grip" aria-hidden="true">
           <span />
@@ -682,7 +720,7 @@ const App = () => {
   };
 
   const handleExport = () => {
-    const payload = createBackupPayload({ sheets, divideAndConquerText, divideAndConquerItems });
+    const payload = createBackupPayload({ sheets, divideAndConquerText, divideAndConquerItems, currentFocusTaskId });
     const timeStamp = new Date().toISOString().slice(0, 10);
     downloadTextFile(JSON.stringify(payload, null, 2), `checklist-backup-${timeStamp}.json`);
     setStatus('Backup exported');
@@ -714,9 +752,18 @@ const App = () => {
         syncDivideAndConquerDraftRowsFromText(parsed.divideAndConquerText);
       }
       if (Array.isArray((parsed as { divideAndConquerItems?: unknown }).divideAndConquerItems)) {
-        setDivideAndConquerItems(
-          (parsed as { divideAndConquerItems?: DivideAndConquerTask[] }).divideAndConquerItems ?? [],
+        const nextDivideAndConquerItems =
+          (parsed as { divideAndConquerItems?: DivideAndConquerTask[] }).divideAndConquerItems ?? [];
+
+        setDivideAndConquerItems(nextDivideAndConquerItems);
+        setCurrentFocusTaskId(
+          normalizeCurrentFocusTaskId(
+            (parsed as { currentFocusTaskId?: string | null }).currentFocusTaskId,
+            nextDivideAndConquerItems,
+          ),
         );
+      } else {
+        setCurrentFocusTaskId(null);
       }
       setStatus('Backup imported');
     } catch {
@@ -880,18 +927,22 @@ const App = () => {
   };
 
   const handleClearMatrixQuadrants = () => {
-    if (!hasMatrixQuadrantTasks) {
+    if (!hasSortableStateToClear) {
       return;
     }
 
     setDivideAndConquerItems((currentItems) =>
       currentItems.map((item) =>
-        isDivideAndConquerQuadrantBucket(item.bucket) ? { ...item, bucket: 'unassigned' } : item,
+        item.id === currentFocusTaskId || isDivideAndConquerQuadrantBucket(item.bucket)
+          ? { ...item, bucket: 'unassigned' }
+          : item,
       ),
     );
+    setCurrentFocusTaskId(null);
     setDraggedTaskId(null);
+    setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
-    setStatus('Matrix quadrants cleared');
+    setStatus('Sorting board cleared');
   };
 
   const scrollQuadrantTaskListToBottom = (bucket: DivideAndConquerQuadrantBucket) => {
@@ -935,10 +986,90 @@ const App = () => {
     );
   };
 
-  const moveDivideAndConquerTask = (taskId: string, bucket: DivideAndConquerBucket) => {
+  const moveDivideAndConquerTask = (
+    taskId: string,
+    bucket: DivideAndConquerBucket,
+    targetTaskId?: string,
+    placement: DivideAndConquerDropPlacement = 'after',
+  ) => {
+    setDivideAndConquerItems((currentItems) => {
+      const movingTask = currentItems.find((item) => item.id === taskId);
+
+      if (!movingTask) {
+        return currentItems;
+      }
+
+      const nextMovingTask = { ...movingTask, bucket };
+      const itemsWithoutMovingTask = currentItems.filter((item) => item.id !== taskId);
+
+      if (targetTaskId && targetTaskId !== taskId) {
+        const targetIndex = itemsWithoutMovingTask.findIndex((item) => item.id === targetTaskId);
+
+        if (targetIndex >= 0) {
+          const insertIndex = placement === 'before' ? targetIndex : targetIndex + 1;
+
+          return [
+            ...itemsWithoutMovingTask.slice(0, insertIndex),
+            nextMovingTask,
+            ...itemsWithoutMovingTask.slice(insertIndex),
+          ];
+        }
+      }
+
+      const lastBucketIndex = itemsWithoutMovingTask.reduce(
+        (lastIndex, item, index) => (item.bucket === bucket ? index : lastIndex),
+        -1,
+      );
+
+      if (lastBucketIndex < 0) {
+        return [...itemsWithoutMovingTask, nextMovingTask];
+      }
+
+      return [
+        ...itemsWithoutMovingTask.slice(0, lastBucketIndex + 1),
+        nextMovingTask,
+        ...itemsWithoutMovingTask.slice(lastBucketIndex + 1),
+      ];
+    });
+  };
+
+  const focusDivideAndConquerTask = (taskId: string) => {
+    if (!divideAndConquerItems.some((item) => item.id === taskId)) {
+      return;
+    }
+
     setDivideAndConquerItems((currentItems) =>
-      currentItems.map((item) => (item.id === taskId ? { ...item, bucket } : item)),
+      currentItems.map((item) =>
+        currentFocusTaskId && item.id === currentFocusTaskId && item.id !== taskId
+          ? { ...item, bucket: 'completed' }
+          : item,
+      ),
     );
+    setCurrentFocusTaskId(taskId);
+    setDraggedTaskId(null);
+    setIsCompletedMagnetic(false);
+    setStatus('Current focus set');
+  };
+
+  const completeCurrentFocusTask = () => {
+    if (!currentFocusTaskId) {
+      return;
+    }
+
+    setDivideAndConquerItems((currentItems) =>
+      currentItems.map((item) => (item.id === currentFocusTaskId ? { ...item, bucket: 'completed' } : item)),
+    );
+    setCurrentFocusTaskId(null);
+    setStatus('Task completed');
+  };
+
+  const clearCurrentFocusTask = () => {
+    if (!currentFocusTaskId) {
+      return;
+    }
+
+    setCurrentFocusTaskId(null);
+    setStatus('Current focus cleared');
   };
 
   const handleDivideAndConquerDragStart = (event: React.DragEvent<HTMLElement>, taskId: string) => {
@@ -972,6 +1103,7 @@ const App = () => {
 
   const handleDivideAndConquerDragEnd = () => {
     setDraggedTaskId(null);
+    setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
   };
 
@@ -985,11 +1117,97 @@ const App = () => {
 
     moveDivideAndConquerTask(taskId, bucket);
     setDraggedTaskId(null);
+    setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
 
     if (bucket === 'completed') {
       setStatus('Task completed');
     }
+  };
+
+  const getTaskCardDropPlacement = (event: React.DragEvent<HTMLElement>): DivideAndConquerDropPlacement => {
+    const targetRect = event.currentTarget.getBoundingClientRect();
+
+    return event.clientY < targetRect.top + targetRect.height / 2 ? 'before' : 'after';
+  };
+
+  const handleDivideAndConquerTaskCardDragOver = (
+    event: React.DragEvent<HTMLElement>,
+    targetTask: DivideAndConquerTask,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+
+    if (!draggedTaskId || draggedTaskId === targetTask.id) {
+      setDragInsertionTarget(null);
+      return;
+    }
+
+    const placement = getTaskCardDropPlacement(event);
+    setDragInsertionTarget((currentTarget) =>
+      currentTarget?.taskId === targetTask.id && currentTarget.placement === placement
+        ? currentTarget
+        : { taskId: targetTask.id, placement },
+    );
+  };
+
+  const handleDivideAndConquerTaskCardDragLeave = (
+    event: React.DragEvent<HTMLElement>,
+    targetTaskId: string,
+  ) => {
+    const relatedTarget = event.relatedTarget;
+
+    if (relatedTarget instanceof Node && event.currentTarget.contains(relatedTarget)) {
+      return;
+    }
+
+    setDragInsertionTarget((currentTarget) =>
+      currentTarget?.taskId === targetTaskId ? null : currentTarget,
+    );
+  };
+
+  const handleDivideAndConquerTaskCardDrop = (
+    event: React.DragEvent<HTMLElement>,
+    targetTask: DivideAndConquerTask,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const taskId = event.dataTransfer.getData('text/plain') || draggedTaskId;
+
+    if (!taskId) {
+      return;
+    }
+
+    if (taskId === targetTask.id) {
+      setDraggedTaskId(null);
+      setDragInsertionTarget(null);
+      setIsCompletedMagnetic(false);
+      return;
+    }
+
+    const placement = getTaskCardDropPlacement(event);
+
+    moveDivideAndConquerTask(taskId, targetTask.bucket, targetTask.id, placement);
+    setDraggedTaskId(null);
+    setDragInsertionTarget(null);
+    setIsCompletedMagnetic(false);
+
+    if (targetTask.bucket === 'completed') {
+      setStatus('Task completed');
+    }
+  };
+
+  const handleCurrentFocusDrop = (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    const taskId = event.dataTransfer.getData('text/plain') || draggedTaskId;
+
+    if (!taskId) {
+      return;
+    }
+
+    focusDivideAndConquerTask(taskId);
+    setDragInsertionTarget(null);
   };
 
   const handleDivideAndConquerDragOver = (event: React.DragEvent<HTMLElement>) => {
@@ -1150,15 +1368,41 @@ const App = () => {
               <div className="sort-board-intro">
                 <h1 id="sort-board-title">Sort them out</h1>
                 <div className="sort-board-intro-actions">
-                  <p>Drag each task into the box that fits it best.</p>
-                  <button
-                    type="button"
-                    className="sort-clear-all-button"
-                    onClick={handleClearMatrixQuadrants}
-                    disabled={!hasMatrixQuadrantTasks}
+                  <p
+                    className={`sort-focus-line ${currentFocusTask ? 'has-focus' : ''} ${
+                      draggedTaskId ? 'drop-ready' : ''
+                    }`}
+                    onDragOver={handleDivideAndConquerDragOver}
+                    onDrop={handleCurrentFocusDrop}
+                    aria-live="polite"
                   >
-                    clear all
-                  </button>
+                    <span className="sort-focus-label">Main task now:</span>
+                    <span className="sort-focus-text">{currentFocusTask?.text || 'drag a task here.'}</span>
+                  </p>
+                  {currentFocusTask ? (
+                    <span className="sort-focus-actions" aria-label="Current focus actions">
+                      <button
+                        type="button"
+                        className="sort-focus-action-button complete"
+                        onClick={completeCurrentFocusTask}
+                        onDragStart={(event) => event.preventDefault()}
+                        aria-label="Complete current focus"
+                        title="Complete current focus"
+                      >
+                        <span aria-hidden="true">✓</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="sort-focus-action-button clear"
+                        onClick={clearCurrentFocusTask}
+                        onDragStart={(event) => event.preventDefault()}
+                        aria-label="Clear current focus"
+                        title="Clear current focus"
+                      >
+                        <span aria-hidden="true">×</span>
+                      </button>
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -1183,6 +1427,18 @@ const App = () => {
                 </aside>
 
                 <div className="sort-matrix-and-completion">
+                  <div className="sort-board-toolbar">
+                    <button
+                      type="button"
+                      className="sort-clear-all-button"
+                      onClick={handleClearMatrixQuadrants}
+                      disabled={!hasSortableStateToClear}
+                      aria-label="Clear all sorted tasks"
+                      title="Clear all sorted tasks"
+                    >
+                      clear all
+                    </button>
+                  </div>
                   <div className="sort-matrix-wrap">
                     <div className="sort-matrix-top-labels" aria-hidden="true">
                       <span className="sort-column-header">Unattractive</span>

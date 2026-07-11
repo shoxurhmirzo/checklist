@@ -346,7 +346,53 @@ button:focus-visible {
   flex-wrap: wrap;
 }
 
-.sort-clear-all-button {
+.sort-board-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 1.45rem;
+  margin: 0 0 0.25rem;
+  padding-right: 0.25rem;
+}
+
+.sort-focus-line {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.25rem;
+  max-width: min(760px, calc(100vw - 2rem));
+  min-width: 0;
+  margin: 0.35rem 0 0;
+  padding: 0.05rem 0.15rem 0.08rem;
+  border-bottom: 1px dashed transparent;
+  line-height: 1.25;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease;
+}
+
+.sort-focus-line.drop-ready {
+  border-bottom-color: #245b67;
+  background: #eef3f8;
+}
+
+.sort-focus-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: #111;
+}
+
+.sort-focus-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.sort-focus-line.has-focus .sort-focus-text {
+  color: #111;
+  font-weight: 600;
+}
+
+.sort-clear-all-button,
+.sort-focus-action-button {
   border: 0;
   background: transparent;
   color: #245b67;
@@ -357,7 +403,8 @@ button:focus-visible {
   text-underline-offset: 2px;
 }
 
-.sort-clear-all-button:hover {
+.sort-clear-all-button:hover,
+.sort-focus-action-button:hover {
   color: #123b44;
   background: transparent;
 }
@@ -368,6 +415,47 @@ button:focus-visible {
   background: transparent;
   cursor: default;
   text-decoration-color: transparent;
+}
+
+.sort-focus-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.sort-focus-action-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  min-width: 1.55rem;
+  height: 1.55rem;
+  border: 1px solid #245b67;
+  background: #fff;
+  line-height: 1;
+  text-decoration: none;
+  box-shadow: none;
+}
+
+.sort-focus-action-button.complete {
+  color: #2f6f45;
+  border-color: #2f6f45;
+}
+
+.sort-focus-action-button.clear {
+  color: #8d4f4f;
+  border-color: #8d4f4f;
+}
+
+.sort-focus-action-button.complete:hover {
+  background: #eef8f0;
+  color: #245b35;
+}
+
+.sort-focus-action-button.clear:hover {
+  background: #faf0f0;
+  color: #6f3737;
 }
 
 .sort-board-layout {
@@ -432,22 +520,14 @@ button:focus-visible {
   flex-direction: column;
   gap: 0.55rem;
   margin-top: 0.4rem;
-  transform-origin: center;
   transition:
-    transform 180ms ease,
     border-color 180ms ease,
-    border-width 180ms ease,
-    background 180ms ease,
     box-shadow 180ms ease;
-  will-change: transform;
 }
 
 .sort-completion-zone.magnetic {
-  transform: scale(1.02);
-  border-width: 2px;
   border-color: #86c893;
-  background: #eef9ef;
-  box-shadow: 0 0 0 4px rgba(76, 143, 88, 0.1), 0 10px 24px rgba(47, 111, 69, 0.12);
+  box-shadow: 0 0 0 4px rgba(76, 143, 88, 0.12);
 }
 
 .sort-completion-title {
@@ -740,6 +820,33 @@ button:focus-visible {
   border-color: #000;
   background: #f8fafc;
   box-shadow: inset 0 0 0 1px rgba(22, 22, 22, 0.08);
+}
+
+.sort-task-card.insert-before,
+.sort-task-card.insert-after {
+  border-color: #6fa6b1;
+}
+
+.sort-task-card.insert-before::before,
+.sort-task-card.insert-after::after {
+  content: '';
+  position: absolute;
+  left: 0.35rem;
+  right: 0.35rem;
+  z-index: 3;
+  height: 4px;
+  border-radius: 999px;
+  background: #6fa6b1;
+  box-shadow: 0 0 0 2px rgba(111, 166, 177, 0.12);
+  pointer-events: none;
+}
+
+.sort-task-card.insert-before::before {
+  top: 2px;
+}
+
+.sort-task-card.insert-after::after {
+  bottom: 2px;
 }
 
 .sort-task-card.source-placeholder {

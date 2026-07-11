@@ -47,6 +47,7 @@ export interface AppState {
   sheets: ChecklistSheet[];
   divideAndConquerText: string;
   divideAndConquerItems: DivideAndConquerTask[];
+  currentFocusTaskId: string | null;
 }
 
 export interface BackupPayload {
@@ -55,4 +56,5 @@ export interface BackupPayload {
   sheets: ChecklistSheet[];
   divideAndConquerText?: string;
   divideAndConquerItems?: DivideAndConquerTask[];
+  currentFocusTaskId?: string | null;
 }

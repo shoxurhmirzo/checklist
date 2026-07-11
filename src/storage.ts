@@ -12,7 +12,8 @@ const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
 const LEGACY_SHEETS_STORE_KEY = 'sheets';
 const APP_STATE_STORE_KEY = 'state';
-const BACKUP_VERSION = 4;
+const BACKUP_VERSION = 5;
+const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, BACKUP_VERSION];
 
 export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
 export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
@@ -146,12 +147,16 @@ const normalizeDivideAndConquerItems = (value: unknown): DivideAndConquerTask[] 
     }));
 };
 
+export const normalizeCurrentFocusTaskId = (value: unknown, items: DivideAndConquerTask[]) =>
+  typeof value === 'string' && items.some((item) => item.id === value) ? value : null;
+
 const normalizeAppState = (value: unknown): AppState | null => {
   if (Array.isArray(value)) {
     return {
       sheets: normalizeSavedSheets(value as ChecklistSheet[]),
       divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
       divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
+      currentFocusTaskId: null,
     };
   }
 
@@ -165,10 +170,13 @@ const normalizeAppState = (value: unknown): AppState | null => {
     return null;
   }
 
+  const divideAndConquerItems = normalizeDivideAndConquerItems(state.divideAndConquerItems);
+
   return {
     sheets: normalizeSavedSheets(state.sheets),
     divideAndConquerText: normalizeDivideAndConquerText(state.divideAndConquerText),
-    divideAndConquerItems: normalizeDivideAndConquerItems(state.divideAndConquerItems),
+    divideAndConquerItems,
+    currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
   };
 };
 
@@ -176,6 +184,7 @@ const createDefaultAppState = (): AppState => ({
   sheets: [createSheet('Checklist 1')],
   divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
   divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
+  currentFocusTaskId: null,
 });
 
 const openDatabase = async (): Promise<IDBDatabase> =>
@@ -236,10 +245,12 @@ export const loadAppState = async (): Promise<AppState> => {
 
 export const saveAppState = async (state: AppState): Promise<void> =>
   withStore<void>('readwrite', (store, resolve, reject) => {
+    const divideAndConquerItems = normalizeDivideAndConquerItems(state.divideAndConquerItems);
     const normalizedState: AppState = {
       sheets: normalizeSavedSheets(state.sheets),
       divideAndConquerText: state.divideAndConquerText,
-      divideAndConquerItems: normalizeDivideAndConquerItems(state.divideAndConquerItems),
+      divideAndConquerItems,
+      currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
     };
     const request = store.put(normalizedState, APP_STATE_STORE_KEY);
 
@@ -258,6 +269,7 @@ export const createBackupPayload = (state: AppState): BackupPayload => ({
   sheets: state.sheets,
   divideAndConquerText: state.divideAndConquerText,
   divideAndConquerItems: state.divideAndConquerItems,
+  currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, state.divideAndConquerItems),
 });
 
 const isValidLoggedCheckState = (value: unknown): value is CheckState => {
@@ -289,9 +301,12 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
   const payload = value as Partial<BackupPayload>;
 
   return (
-    (payload.version === 1 || payload.version === 2 || payload.version === BACKUP_VERSION) &&
+    SUPPORTED_BACKUP_VERSIONS.includes(payload.version ?? 0) &&
     typeof payload.exportedAt === 'string' &&
     (payload.divideAndConquerText === undefined || typeof payload.divideAndConquerText === 'string') &&
+    (payload.currentFocusTaskId === undefined ||
+      payload.currentFocusTaskId === null ||
+      typeof payload.currentFocusTaskId === 'string') &&
     (payload.divideAndConquerItems === undefined ||
       (Array.isArray(payload.divideAndConquerItems) &&
         payload.divideAndConquerItems.every(
