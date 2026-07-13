@@ -43,11 +43,24 @@ export interface DivideAndConquerTask {
   bucket: DivideAndConquerBucket;
 }
 
+export interface DailyHistoryEntry {
+  id: string;
+  text: string;
+}
+
+export interface DailyHistoryRecord {
+  date: string;
+  completed: DailyHistoryEntry[];
+  undone: DailyHistoryEntry[];
+}
+
 export interface AppState {
   sheets: ChecklistSheet[];
   divideAndConquerText: string;
   divideAndConquerItems: DivideAndConquerTask[];
   currentFocusTaskId: string | null;
+  dailyHistory: DailyHistoryRecord[];
+  lastRolloverDate: string | null;
 }
 
 export interface BackupPayload {
@@ -57,4 +70,6 @@ export interface BackupPayload {
   divideAndConquerText?: string;
   divideAndConquerItems?: DivideAndConquerTask[];
   currentFocusTaskId?: string | null;
+  dailyHistory?: DailyHistoryRecord[];
+  lastRolloverDate?: string | null;
 }

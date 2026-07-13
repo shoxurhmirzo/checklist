@@ -23,13 +23,17 @@ import {
   isValidBackupPayload,
   loadAppState,
   normalizeCurrentFocusTaskId,
+  normalizeDailyHistory,
+  normalizeLastRolloverDate,
   normalizeSheets,
   saveAppState,
 } from './storage';
 import type {
+  AppState,
   CheckState,
   ChecklistSection,
   ChecklistSheet,
+  DailyHistoryRecord,
   DivideAndConquerBucket,
   DivideAndConquerTask,
   SectionId,
@@ -40,7 +44,7 @@ const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
 const COMPLETED_MAGNETIC_DISTANCE = 60;
 const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
-type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard';
+type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard' | 'history';
 type DivideAndConquerQuadrantBucket = Exclude<DivideAndConquerBucket, 'unassigned' | 'completed'>;
 type DivideAndConquerDropPlacement = 'before' | 'after';
 
@@ -64,38 +68,6 @@ const DIVIDE_AND_CONQUER_QUADRANT_BUCKETS: DivideAndConquerQuadrantBucket[] = [
   'productive-unattractive',
   'unproductive-attractive',
   'unproductive-unattractive',
-];
-
-const DIVIDE_AND_CONQUER_SORT_BUCKETS: Array<{
-  id: DivideAndConquerQuadrantBucket;
-  title: string;
-  subtitle: string;
-  emphasis: string;
-}> = [
-  {
-    id: 'productive-attractive',
-    title: 'Do now',
-    subtitle: 'Productive + Attractive',
-    emphasis: 'Important and enjoyable work',
-  },
-  {
-    id: 'productive-unattractive',
-    title: 'Must do',
-    subtitle: 'Productive + Unattractive',
-    emphasis: 'Important but not enjoyable work',
-  },
-  {
-    id: 'unproductive-attractive',
-    title: 'Enjoy',
-    subtitle: 'Unproductive + Attractive',
-    emphasis: 'Nice, but not urgent',
-  },
-  {
-    id: 'unproductive-unattractive',
-    title: 'Eliminate',
-    subtitle: 'Unproductive + Unattractive',
-    emphasis: 'Low value distractions',
-  },
 ];
 
 interface ConfirmState {
@@ -203,6 +175,65 @@ const reconcileDivideAndConquerItemsWithDraftRows = (
 const formatDivideAndConquerTasksText = (tasks: DivideAndConquerTask[]) =>
   tasks.map((task, index) => buildDivideAndConquerLine(index + 1, task.text)).join('\n');
 
+const getLocalDateString = (date = new Date()) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const formatHistoryDate = (date: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    weekday: 'short',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(`${date}T00:00:00`));
+
+const formatHistoryWeekday = (date: string) =>
+  new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`));
+
+interface DailyRolloverSlice {
+  divideAndConquerItems: DivideAndConquerTask[];
+  currentFocusTaskId: string | null;
+  dailyHistory: DailyHistoryRecord[];
+  lastRolloverDate: string | null;
+}
+
+const applyDailyRollover = (
+  slice: DailyRolloverSlice,
+  today: string,
+): { slice: DailyRolloverSlice; didRollover: boolean } => {
+  if (slice.lastRolloverDate === null) {
+    return { slice: { ...slice, lastRolloverDate: today }, didRollover: true };
+  }
+
+  // Guards against a same-day re-check and a clock that moved backwards.
+  if (today <= slice.lastRolloverDate) {
+    return { slice, didRollover: false };
+  }
+
+  const record: DailyHistoryRecord | null =
+    slice.divideAndConquerItems.length > 0
+      ? {
+          // The record belongs to the day being closed, not the day the app woke up.
+          date: slice.lastRolloverDate,
+          completed: slice.divideAndConquerItems
+            .filter((item) => item.bucket === 'completed')
+            .map((item) => ({ id: item.id, text: item.text })),
+          undone: slice.divideAndConquerItems
+            .filter((item) => item.bucket !== 'completed')
+            .map((item) => ({ id: item.id, text: item.text })),
+        }
+      : null;
+
+  return {
+    slice: {
+      divideAndConquerItems: slice.divideAndConquerItems.map((item) => ({ ...item, bucket: 'unassigned' as const })),
+      currentFocusTaskId: null,
+      dailyHistory: record ? [record, ...slice.dailyHistory] : slice.dailyHistory,
+      lastRolloverDate: today,
+    },
+    didRollover: true,
+  };
+};
+
 const App = () => {
   const [sheets, setSheets] = useState<ChecklistSheet[]>([]);
   const [activeSheetId, setActiveSheetId] = useState<string>('');
@@ -216,11 +247,17 @@ const App = () => {
     DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   );
   const [currentFocusTaskId, setCurrentFocusTaskId] = useState<string | null>(null);
+  const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
+  const [lastRolloverDate, setLastRolloverDate] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
   const [editingDivideAndConquerTaskId, setEditingDivideAndConquerTaskId] = useState<string | null>(null);
   const [isCompletedMagnetic, setIsCompletedMagnetic] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [persistenceBlocked, setPersistenceBlocked] = useState(false);
+  const latestAppStateRef = useRef<AppState | null>(null);
+  const rolloverCheckRef = useRef<() => void>(() => {});
+  const historyReturnViewRef = useRef<AppView>('checklist');
   const [status, setStatus] = useState('Loading checklist...');
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceRef = useRef<HTMLElement | null>(null);
@@ -341,8 +378,20 @@ const App = () => {
         setSheets(storedState.sheets);
         setActiveSheetId(storedState.sheets[0]?.id ?? '');
         syncDivideAndConquerDraftRowsFromText(storedState.divideAndConquerText);
-        setDivideAndConquerItems(storedState.divideAndConquerItems);
-        setCurrentFocusTaskId(storedState.currentFocusTaskId);
+
+        const rolled = applyDailyRollover(
+          {
+            divideAndConquerItems: storedState.divideAndConquerItems,
+            currentFocusTaskId: storedState.currentFocusTaskId,
+            dailyHistory: storedState.dailyHistory,
+            lastRolloverDate: storedState.lastRolloverDate,
+          },
+          getLocalDateString(),
+        );
+        setDivideAndConquerItems(rolled.slice.divideAndConquerItems);
+        setCurrentFocusTaskId(rolled.slice.currentFocusTaskId);
+        setDailyHistory(rolled.slice.dailyHistory);
+        setLastRolloverDate(rolled.slice.lastRolloverDate);
         setStatus('Checklist loaded');
       })
       .catch(() => {
@@ -353,7 +402,10 @@ const App = () => {
         const fallback = [createSheet('Checklist 1')];
         setSheets(fallback);
         setActiveSheetId(fallback[0].id);
-        setStatus('Started with a fresh checklist');
+        // Loading failed, which is not the same as no data existing: autosaving
+        // this fresh state would overwrite whatever is still stored.
+        setPersistenceBlocked(true);
+        setStatus('Could not load saved data — autosave is paused to protect it. Reload to retry.');
       })
       .finally(() => {
         if (!cancelled) {
@@ -367,14 +419,112 @@ const App = () => {
   }, []);
 
   useEffect(() => {
+    if (!isLoaded || persistenceBlocked) {
+      return;
+    }
+
+    const state: AppState = {
+      sheets,
+      divideAndConquerText,
+      divideAndConquerItems,
+      currentFocusTaskId,
+      dailyHistory,
+      lastRolloverDate,
+    };
+    latestAppStateRef.current = state;
+
+    // Debounced so a burst of keystrokes becomes one IndexedDB write; the
+    // pagehide/hidden flush below covers the tail if the tab closes first.
+    const timeoutId = window.setTimeout(() => {
+      void saveAppState(state)
+        .then(() => setStatus('All changes saved locally'))
+        .catch(() => setStatus('Save failed. Export a backup after your next successful save.'));
+    }, 400);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    currentFocusTaskId,
+    dailyHistory,
+    divideAndConquerItems,
+    divideAndConquerText,
+    isLoaded,
+    lastRolloverDate,
+    persistenceBlocked,
+    sheets,
+  ]);
+
+  useEffect(() => {
+    if (!isLoaded || persistenceBlocked) {
+      return;
+    }
+
+    const flush = () => {
+      if (latestAppStateRef.current) {
+        void saveAppState(latestAppStateRef.current).catch(() => {});
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flush();
+      }
+    };
+
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isLoaded, persistenceBlocked]);
+
+  useEffect(() => {
+    rolloverCheckRef.current = () => {
+      const previousRolloverDate = lastRolloverDate;
+      const result = applyDailyRollover(
+        { divideAndConquerItems, currentFocusTaskId, dailyHistory, lastRolloverDate },
+        getLocalDateString(),
+      );
+
+      if (!result.didRollover) {
+        return;
+      }
+
+      setDivideAndConquerItems(result.slice.divideAndConquerItems);
+      setCurrentFocusTaskId(result.slice.currentFocusTaskId);
+      setDailyHistory(result.slice.dailyHistory);
+      setLastRolloverDate(result.slice.lastRolloverDate);
+      // The rollover can land mid-drag and unmount the dragged card, in which
+      // case dragend never fires — drop any in-flight drag UI state with it.
+      setDraggedTaskId(null);
+      setDragInsertionTarget(null);
+      setIsCompletedMagnetic(false);
+
+      if (previousRolloverDate !== null) {
+        setStatus('New day — task list renewed');
+      }
+    };
+  }, [currentFocusTaskId, dailyHistory, divideAndConquerItems, lastRolloverDate]);
+
+  useEffect(() => {
     if (!isLoaded) {
       return;
     }
 
-    void saveAppState({ sheets, divideAndConquerText, divideAndConquerItems, currentFocusTaskId })
-      .then(() => setStatus('All changes saved locally'))
-      .catch(() => setStatus('Save failed. Export a backup after your next successful save.'));
-  }, [currentFocusTaskId, divideAndConquerItems, divideAndConquerText, isLoaded, sheets]);
+    const checkForRollover = () => rolloverCheckRef.current();
+
+    // A short interval plus wake/focus listeners is more reliable than one long
+    // timeout to midnight, which drifts or never fires after the machine sleeps.
+    const intervalId = window.setInterval(checkForRollover, 60_000);
+    document.addEventListener('visibilitychange', checkForRollover);
+    window.addEventListener('focus', checkForRollover);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', checkForRollover);
+      window.removeEventListener('focus', checkForRollover);
+    };
+  }, [isLoaded]);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -429,6 +579,14 @@ const App = () => {
     };
   }, [activeSheetId, activeView, sheets]);
 
+  // Keeps the sheet selector honest whenever the active id goes dangling
+  // (sheet deleted from a stale dialog, import replacing the list, ...).
+  useEffect(() => {
+    if (sheets.length > 0 && !sheets.some((sheet) => sheet.id === activeSheetId)) {
+      setActiveSheetId(sheets[0].id);
+    }
+  }, [activeSheetId, sheets]);
+
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0] ?? null;
   const markTotals = activeSheet
     ? activeSheet.sections.reduce(
@@ -470,6 +628,32 @@ const App = () => {
     completed: visibleDivideAndConquerItems.filter((item) => item.bucket === 'completed'),
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
+  const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
+  const todayRemainingTasks = divideAndConquerItems.filter((item) => item.bucket !== 'completed');
+
+  const renderHistoryColumn = (
+    kind: 'completed' | 'undone',
+    title: string,
+    entries: Array<{ id: string; text: string }>,
+    emptyText: string,
+  ) => (
+    <div className={`history-column ${kind}`}>
+      <h3>
+        {title} <span className="history-column-count">({entries.length})</span>
+      </h3>
+      {entries.length > 0 ? (
+        <ul className="history-task-list">
+          {entries.map((entry) => (
+            <li key={entry.id} className="history-task">
+              {entry.text}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="history-column-empty">{emptyText}</p>
+      )}
+    </div>
+  );
   const divideAndConquerTaskCount = getDivideAndConquerDraftTaskTexts(divideAndConquerDraftRows).length;
   const canSortDivideAndConquerTasks = divideAndConquerTaskCount >= MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT;
   const hasMatrixQuadrantTasks = DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.some(
@@ -495,7 +679,7 @@ const App = () => {
     return () => {
       window.cancelAnimationFrame(animationFrame);
     };
-  }, [activeView, divideAndConquerItems, editingDivideAndConquerTaskId]);
+  }, [activeView, currentFocusTaskId, divideAndConquerItems, editingDivideAndConquerTaskId]);
 
   useEffect(() => {
     if (activeView !== 'sortBoard') {
@@ -706,21 +890,25 @@ const App = () => {
       confirmLabel: 'Delete',
       onConfirm: () => {
         setSheets((currentSheets) => currentSheets.filter((sheet) => sheet.id !== sheetId));
-
-        if (activeSheetId === sheetId) {
-          const remaining = sheets.find((sheet) => sheet.id !== sheetId);
-          if (remaining) {
-            setActiveSheetId(remaining.id);
-          }
-        }
-
         setStatus('Sheet deleted');
       },
     });
   };
 
+  const openHistoryView = () => {
+    historyReturnViewRef.current = activeView;
+    setActiveView('history');
+  };
+
   const handleExport = () => {
-    const payload = createBackupPayload({ sheets, divideAndConquerText, divideAndConquerItems, currentFocusTaskId });
+    const payload = createBackupPayload({
+      sheets,
+      divideAndConquerText,
+      divideAndConquerItems,
+      currentFocusTaskId,
+      dailyHistory,
+      lastRolloverDate,
+    });
     const timeStamp = new Date().toISOString().slice(0, 10);
     downloadTextFile(JSON.stringify(payload, null, 2), `checklist-backup-${timeStamp}.json`);
     setStatus('Backup exported');
@@ -745,26 +933,26 @@ const App = () => {
         throw new Error('Invalid backup format');
       }
 
-      const normalizedSheets = normalizeSheets(parsed.sheets);
+      // Restore exactly what the backup contains; fields absent from older
+      // backup versions reset to defaults instead of mixing with current state.
+      const normalizedSheets =
+        parsed.sheets.length > 0 ? normalizeSheets(parsed.sheets) : [createSheet('Checklist 1')];
       setSheets(normalizedSheets);
       setActiveSheetId(normalizedSheets[0]?.id ?? '');
-      if (typeof parsed.divideAndConquerText === 'string') {
-        syncDivideAndConquerDraftRowsFromText(parsed.divideAndConquerText);
-      }
-      if (Array.isArray((parsed as { divideAndConquerItems?: unknown }).divideAndConquerItems)) {
-        const nextDivideAndConquerItems =
-          (parsed as { divideAndConquerItems?: DivideAndConquerTask[] }).divideAndConquerItems ?? [];
-
-        setDivideAndConquerItems(nextDivideAndConquerItems);
-        setCurrentFocusTaskId(
-          normalizeCurrentFocusTaskId(
-            (parsed as { currentFocusTaskId?: string | null }).currentFocusTaskId,
-            nextDivideAndConquerItems,
-          ),
-        );
-      } else {
-        setCurrentFocusTaskId(null);
-      }
+      syncDivideAndConquerDraftRowsFromText(
+        typeof parsed.divideAndConquerText === 'string'
+          ? parsed.divideAndConquerText
+          : DEFAULT_DIVIDE_AND_CONQUER_TEXT,
+      );
+      const nextDivideAndConquerItems = Array.isArray(parsed.divideAndConquerItems)
+        ? parsed.divideAndConquerItems
+        : DEFAULT_DIVIDE_AND_CONQUER_ITEMS;
+      setDivideAndConquerItems(nextDivideAndConquerItems);
+      setCurrentFocusTaskId(normalizeCurrentFocusTaskId(parsed.currentFocusTaskId, nextDivideAndConquerItems));
+      setDailyHistory(normalizeDailyHistory(parsed.dailyHistory));
+      // Old backups carry no rollover date; stamping today keeps the imported
+      // tasks from being swept into history on the next rollover check.
+      setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
       setStatus('Backup imported');
     } catch {
       window.alert('The selected file is not a valid checklist backup.');
@@ -805,10 +993,9 @@ const App = () => {
   const handleDivideAndConquerDraftChange = (rowId: string, text: string) => {
     const currentRows = divideAndConquerDraftRowsRef.current;
 
-    commitDivideAndConquerDraftRows(
-      currentRows.map((row) => (row.id === rowId ? { ...row, text } : row)),
-      true,
-    );
+    // Plain typing needs no flushSync — only the structural handlers
+    // (Enter/Backspace/paste) that reposition the cursor do.
+    commitDivideAndConquerDraftRows(currentRows.map((row) => (row.id === rowId ? { ...row, text } : row)));
   };
 
   const handleDivideAndConquerDraftKeyDown = (
@@ -1111,14 +1298,16 @@ const App = () => {
     event.preventDefault();
     const taskId = event.dataTransfer.getData('text/plain') || draggedTaskId;
 
-    if (!taskId) {
+    setDraggedTaskId(null);
+    setDragInsertionTarget(null);
+    setIsCompletedMagnetic(false);
+
+    // The dataTransfer text can be anything dragged in from outside the app.
+    if (!taskId || !divideAndConquerItems.some((item) => item.id === taskId)) {
       return;
     }
 
     moveDivideAndConquerTask(taskId, bucket);
-    setDraggedTaskId(null);
-    setDragInsertionTarget(null);
-    setIsCompletedMagnetic(false);
 
     if (bucket === 'completed') {
       setStatus('Task completed');
@@ -1136,7 +1325,6 @@ const App = () => {
     targetTask: DivideAndConquerTask,
   ) => {
     event.preventDefault();
-    event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
 
     if (!draggedTaskId || draggedTaskId === targetTask.id) {
@@ -1175,23 +1363,21 @@ const App = () => {
     event.stopPropagation();
     const taskId = event.dataTransfer.getData('text/plain') || draggedTaskId;
 
-    if (!taskId) {
-      return;
-    }
+    setDraggedTaskId(null);
+    setDragInsertionTarget(null);
+    setIsCompletedMagnetic(false);
 
-    if (taskId === targetTask.id) {
-      setDraggedTaskId(null);
-      setDragInsertionTarget(null);
-      setIsCompletedMagnetic(false);
+    if (
+      !taskId ||
+      taskId === targetTask.id ||
+      !divideAndConquerItems.some((item) => item.id === taskId)
+    ) {
       return;
     }
 
     const placement = getTaskCardDropPlacement(event);
 
     moveDivideAndConquerTask(taskId, targetTask.bucket, targetTask.id, placement);
-    setDraggedTaskId(null);
-    setDragInsertionTarget(null);
-    setIsCompletedMagnetic(false);
 
     if (targetTask.bucket === 'completed') {
       setStatus('Task completed');
@@ -1301,13 +1487,34 @@ const App = () => {
                 <span className="status-text">{status}</span>
               </>
             ) : activeView === 'divideAndConquer' ? (
-              <button type="button" className="nav-text-link" onClick={() => setActiveView('checklist')}>
-                Checklist
-              </button>
-            ) : (
+              <>
+                <button type="button" className="nav-text-link" onClick={() => setActiveView('checklist')}>
+                  Checklist
+                </button>
+                <button type="button" className="nav-text-link" onClick={openHistoryView}>
+                  History
+                </button>
+              </>
+            ) : activeView === 'sortBoard' ? (
               <>
                 <button type="button" className="nav-link-button" onClick={() => setActiveView('divideAndConquer')}>
                   Back to tasks
+                </button>
+                <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
+                  Checklist
+                </button>
+                <button type="button" className="nav-link-button" onClick={openHistoryView}>
+                  History
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="nav-link-button"
+                  onClick={() => setActiveView(historyReturnViewRef.current)}
+                >
+                  Back
                 </button>
                 <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
                   Checklist
@@ -1549,6 +1756,39 @@ const App = () => {
               </div>
             </div>
           </section>
+        ) : activeView === 'history' ? (
+          <section className="history-page" aria-labelledby="history-title">
+            <div className="history-shell">
+              <h1 id="history-title">Daily history</h1>
+              <article className="history-day is-today">
+                <header className="history-day-header">
+                  <h2>Today</h2>
+                  <span className="history-day-date">{formatHistoryDate(getLocalDateString())}</span>
+                </header>
+                <div className="history-columns">
+                  {renderHistoryColumn('completed', 'Completed', todayCompletedTasks, 'Nothing completed yet.')}
+                  {renderHistoryColumn('undone', 'Not done yet', todayRemainingTasks, 'No tasks waiting.')}
+                </div>
+              </article>
+              {dailyHistory.map((record) => (
+                <article className="history-day" key={record.date}>
+                  <header className="history-day-header">
+                    <h2>{formatHistoryWeekday(record.date)}</h2>
+                    <span className="history-day-date">{formatHistoryDate(record.date)}</span>
+                  </header>
+                  <div className="history-columns">
+                    {renderHistoryColumn('completed', 'Completed', record.completed, 'Nothing was completed.')}
+                    {renderHistoryColumn('undone', 'Undone', record.undone, 'Nothing was left undone.')}
+                  </div>
+                </article>
+              ))}
+              {dailyHistory.length === 0 ? (
+                <div className="history-empty" role="status">
+                  No past days recorded yet. History appears after the first midnight renewal.
+                </div>
+              ) : null}
+            </div>
+          </section>
         ) : (
         <section ref={sheetWrapperRef} className="sheet-wrapper">
           <div
@@ -1695,11 +1935,16 @@ const App = () => {
             aria-modal="true"
             aria-labelledby="confirm-title"
             onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                closeConfirm();
+              }
+            }}
           >
             <h2 id="confirm-title">{confirmState.title}</h2>
             <p>{confirmState.message}</p>
             <div className="confirm-actions">
-              <button type="button" className="plain-button" onClick={closeConfirm}>
+              <button type="button" className="plain-button" onClick={closeConfirm} autoFocus>
                 Cancel
               </button>
               <button type="button" className="confirm-delete-button" onClick={runConfirm}>

@@ -4,6 +4,8 @@ import type {
   BackupPayload,
   ChecklistSheet,
   CheckState,
+  DailyHistoryEntry,
+  DailyHistoryRecord,
   DivideAndConquerBucket,
   DivideAndConquerTask,
 } from './types';
@@ -12,8 +14,8 @@ const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
 const LEGACY_SHEETS_STORE_KEY = 'sheets';
 const APP_STATE_STORE_KEY = 'state';
-const BACKUP_VERSION = 5;
-const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, BACKUP_VERSION];
+const BACKUP_VERSION = 6;
+const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, BACKUP_VERSION];
 
 export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
 export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
@@ -94,8 +96,8 @@ export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
               ? sheet.selectedMonth
               : new Date(sheet.createdAt || Date.now()).getMonth(),
           ),
-    sections: sheet.sections.map((section) => {
-      const rows = section.rows.map((row) => ({
+    sections: (Array.isArray(sheet.sections) ? sheet.sections : []).map((section) => {
+      const rows = (Array.isArray(section?.rows) ? section.rows : []).map((row) => ({
         ...row,
         checksByColumn: normalizeChecks(row.checksByColumn),
       }));
@@ -150,13 +152,68 @@ const normalizeDivideAndConquerItems = (value: unknown): DivideAndConquerTask[] 
 export const normalizeCurrentFocusTaskId = (value: unknown, items: DivideAndConquerTask[]) =>
   typeof value === 'string' && items.some((item) => item.id === value) ? value : null;
 
+const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const normalizeDailyHistoryEntries = (value: unknown): DailyHistoryEntry[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (entry): entry is DailyHistoryEntry =>
+        typeof entry === 'object' &&
+        entry !== null &&
+        typeof (entry as DailyHistoryEntry).id === 'string' &&
+        typeof (entry as DailyHistoryEntry).text === 'string',
+    )
+    .map((entry) => ({ id: entry.id, text: entry.text }));
+};
+
+export const normalizeDailyHistory = (value: unknown): DailyHistoryRecord[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (record): record is DailyHistoryRecord =>
+        typeof record === 'object' &&
+        record !== null &&
+        typeof (record as DailyHistoryRecord).date === 'string' &&
+        LOCAL_DATE_PATTERN.test((record as DailyHistoryRecord).date),
+    )
+    .map((record) => ({
+      date: record.date,
+      completed: normalizeDailyHistoryEntries(record.completed),
+      undone: normalizeDailyHistoryEntries(record.undone),
+    }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .filter((record, index, records) => index === 0 || record.date !== records[index - 1].date);
+};
+
+export const normalizeLastRolloverDate = (value: unknown): string | null =>
+  typeof value === 'string' && LOCAL_DATE_PATTERN.test(value) ? value : null;
+
 const normalizeAppState = (value: unknown): AppState | null => {
+  try {
+    return normalizeAppStateUnsafe(value);
+  } catch {
+    // Malformed stored data must degrade to the fallback chain in loadAppState,
+    // never throw into the app's fresh-state recovery path.
+    return null;
+  }
+};
+
+const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
   if (Array.isArray(value)) {
     return {
       sheets: normalizeSavedSheets(value as ChecklistSheet[]),
       divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
       divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
       currentFocusTaskId: null,
+      dailyHistory: [],
+      lastRolloverDate: null,
     };
   }
 
@@ -177,6 +234,8 @@ const normalizeAppState = (value: unknown): AppState | null => {
     divideAndConquerText: normalizeDivideAndConquerText(state.divideAndConquerText),
     divideAndConquerItems,
     currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
+    dailyHistory: normalizeDailyHistory(state.dailyHistory),
+    lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
   };
 };
 
@@ -185,6 +244,8 @@ const createDefaultAppState = (): AppState => ({
   divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
   divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   currentFocusTaskId: null,
+  dailyHistory: [],
+  lastRolloverDate: null,
 });
 
 const openDatabase = async (): Promise<IDBDatabase> =>
@@ -205,18 +266,36 @@ const openDatabase = async (): Promise<IDBDatabase> =>
 
 const withStore = async <T>(
   mode: IDBTransactionMode,
-  run: (store: IDBObjectStore, resolve: (value: T) => void, reject: (error?: unknown) => void) => void,
+  run: (store: IDBObjectStore, setResult: (value: T) => void, reject: (error?: unknown) => void) => void,
 ): Promise<T> => {
   const database = await openDatabase();
 
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(STORE_NAME, mode);
     const store = transaction.objectStore(STORE_NAME);
+    let result: T;
 
-    transaction.oncomplete = () => database.close();
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'));
+    const fail = (error?: unknown) => {
+      database.close();
+      reject(error ?? new Error('IndexedDB transaction failed'));
+    };
 
-    run(store, resolve, reject);
+    // Resolve only once the transaction commits: request success alone does not
+    // guarantee durability (a quota abort can still discard the write afterwards).
+    transaction.oncomplete = () => {
+      database.close();
+      resolve(result);
+    };
+    transaction.onerror = () => fail(transaction.error);
+    transaction.onabort = () => fail(transaction.error ?? new Error('IndexedDB transaction aborted'));
+
+    run(
+      store,
+      (value) => {
+        result = value;
+      },
+      fail,
+    );
   });
 };
 
@@ -251,15 +330,12 @@ export const saveAppState = async (state: AppState): Promise<void> =>
       divideAndConquerText: state.divideAndConquerText,
       divideAndConquerItems,
       currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
+      dailyHistory: normalizeDailyHistory(state.dailyHistory),
+      lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
     };
     const request = store.put(normalizedState, APP_STATE_STORE_KEY);
 
-    request.onsuccess = () => {
-      const legacyRequest = store.put(normalizedState.sheets, LEGACY_SHEETS_STORE_KEY);
-
-      legacyRequest.onsuccess = () => resolve();
-      legacyRequest.onerror = () => reject(legacyRequest.error ?? new Error('Failed to save data'));
-    };
+    request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error ?? new Error('Failed to save data'));
   });
 
@@ -270,6 +346,8 @@ export const createBackupPayload = (state: AppState): BackupPayload => ({
   divideAndConquerText: state.divideAndConquerText,
   divideAndConquerItems: state.divideAndConquerItems,
   currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, state.divideAndConquerItems),
+  dailyHistory: state.dailyHistory,
+  lastRolloverDate: state.lastRolloverDate,
 });
 
 const isValidLoggedCheckState = (value: unknown): value is CheckState => {
@@ -307,6 +385,26 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
     (payload.currentFocusTaskId === undefined ||
       payload.currentFocusTaskId === null ||
       typeof payload.currentFocusTaskId === 'string') &&
+    (payload.lastRolloverDate === undefined ||
+      payload.lastRolloverDate === null ||
+      typeof payload.lastRolloverDate === 'string') &&
+    (payload.dailyHistory === undefined ||
+      (Array.isArray(payload.dailyHistory) &&
+        payload.dailyHistory.every(
+          (record) =>
+            typeof record === 'object' &&
+            record !== null &&
+            typeof record.date === 'string' &&
+            Array.isArray(record.completed) &&
+            Array.isArray(record.undone) &&
+            [...record.completed, ...record.undone].every(
+              (entry) =>
+                typeof entry === 'object' &&
+                entry !== null &&
+                typeof entry.id === 'string' &&
+                typeof entry.text === 'string',
+            ),
+        ))) &&
     (payload.divideAndConquerItems === undefined ||
       (Array.isArray(payload.divideAndConquerItems) &&
         payload.divideAndConquerItems.every(
