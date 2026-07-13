@@ -629,7 +629,6 @@ const App = () => {
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
   const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
-  const todayRemainingTasks = divideAndConquerItems.filter((item) => item.bucket !== 'completed');
 
   const renderHistoryColumn = (
     kind: 'completed' | 'undone',
@@ -1765,9 +1764,10 @@ const App = () => {
                   <h2>Today</h2>
                   <span className="history-day-date">{formatHistoryDate(getLocalDateString())}</span>
                 </header>
-                <div className="history-columns">
+                {/* Unfinished tasks are not listed while the day is still running —
+                    they only become "undone" once the midnight rollover closes the day. */}
+                <div className="history-columns history-columns-single">
                   {renderHistoryColumn('completed', 'Completed', todayCompletedTasks, 'Nothing completed yet.')}
-                  {renderHistoryColumn('undone', 'Not done yet', todayRemainingTasks, 'No tasks waiting.')}
                 </div>
               </article>
               {dailyHistory.map((record) => (

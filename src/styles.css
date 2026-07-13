@@ -1525,6 +1525,10 @@ thead th {
   gap: 0.9rem;
 }
 
+.history-columns-single {
+  grid-template-columns: 1fr;
+}
+
 .history-column h3 {
   margin: 0 0 0.45rem;
   font-size: 0.95rem;
