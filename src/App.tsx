@@ -199,14 +199,14 @@ interface DailyRolloverSlice {
 const applyDailyRollover = (
   slice: DailyRolloverSlice,
   today: string,
-): { slice: DailyRolloverSlice; didRollover: boolean } => {
+): { slice: DailyRolloverSlice; didRollover: boolean; completedTexts: string[] } => {
   if (slice.lastRolloverDate === null) {
-    return { slice: { ...slice, lastRolloverDate: today }, didRollover: true };
+    return { slice: { ...slice, lastRolloverDate: today }, didRollover: true, completedTexts: [] };
   }
 
   // Guards against a same-day re-check and a clock that moved backwards.
   if (today <= slice.lastRolloverDate) {
-    return { slice, didRollover: false };
+    return { slice, didRollover: false, completedTexts: [] };
   }
 
   const record: DailyHistoryRecord | null =
@@ -225,13 +225,37 @@ const applyDailyRollover = (
 
   return {
     slice: {
-      divideAndConquerItems: slice.divideAndConquerItems.map((item) => ({ ...item, bucket: 'unassigned' as const })),
+      // Completed tasks live on only in the history record; undone tasks carry
+      // over into the new day as unassigned.
+      divideAndConquerItems: slice.divideAndConquerItems
+        .filter((item) => item.bucket !== 'completed')
+        .map((item) => ({ ...item, bucket: 'unassigned' as const })),
       currentFocusTaskId: null,
       dailyHistory: record ? [record, ...slice.dailyHistory] : slice.dailyHistory,
       lastRolloverDate: today,
     },
     didRollover: true,
+    completedTexts: record ? record.completed.map((entry) => entry.text) : [],
   };
+};
+
+// Drops one draft row per completed occurrence so "Start sorting" cannot
+// resurrect archived tasks, while rows that never became items survive.
+const removeTextsFromDraftRows = (rows: DivideAndConquerDraftRow[], texts: string[]) => {
+  const remaining = new Map<string, number>();
+  texts.forEach((text) => remaining.set(text, (remaining.get(text) ?? 0) + 1));
+
+  return rows.filter((row) => {
+    const text = row.text.trim();
+    const count = remaining.get(text) ?? 0;
+
+    if (count === 0) {
+      return true;
+    }
+
+    remaining.set(text, count - 1);
+    return false;
+  });
 };
 
 const App = () => {
@@ -392,6 +416,11 @@ const App = () => {
         setCurrentFocusTaskId(rolled.slice.currentFocusTaskId);
         setDailyHistory(rolled.slice.dailyHistory);
         setLastRolloverDate(rolled.slice.lastRolloverDate);
+        if (rolled.completedTexts.length > 0) {
+          commitDivideAndConquerDraftRows(
+            removeTextsFromDraftRows(divideAndConquerDraftRowsRef.current, rolled.completedTexts),
+          );
+        }
         setStatus('Checklist loaded');
       })
       .catch(() => {
@@ -494,6 +523,11 @@ const App = () => {
       setCurrentFocusTaskId(result.slice.currentFocusTaskId);
       setDailyHistory(result.slice.dailyHistory);
       setLastRolloverDate(result.slice.lastRolloverDate);
+      if (result.completedTexts.length > 0) {
+        commitDivideAndConquerDraftRows(
+          removeTextsFromDraftRows(divideAndConquerDraftRowsRef.current, result.completedTexts),
+        );
+      }
       // The rollover can land mid-drag and unmount the dragged card, in which
       // case dragend never fires — drop any in-flight drag UI state with it.
       setDraggedTaskId(null);
