@@ -1559,6 +1559,10 @@ thead th {
 }
 
 .history-task {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
   border: 1px solid #e0e6e8;
   border-radius: 6px;
   background: #fff;
@@ -1566,6 +1570,69 @@ thead th {
   font-size: 0.95rem;
   color: #111;
   overflow-wrap: anywhere;
+}
+
+.history-task-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.history-task-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 0 0 auto;
+}
+
+.history-edit-button,
+.history-save-button,
+.history-cancel-button {
+  flex: 0 0 auto;
+  border: 1px solid #161616;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.history-edit-button:hover,
+.history-save-button:hover,
+.history-cancel-button:hover {
+  background: #eef3f8;
+}
+
+.history-save-button:disabled {
+  border-color: #aaa;
+  color: #888;
+  background: #eee;
+  cursor: not-allowed;
+}
+
+.history-task-edit-input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 1px solid #161616;
+  background: #fff;
+  color: #111;
+  padding: 0.25rem 0.4rem;
+}
+
+.history-complete-button {
+  flex: 0 0 auto;
+  border: 1px solid #2f7a3d;
+  border-radius: 0;
+  background: #fbfefb;
+  color: #2f7a3d;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.history-complete-button:hover {
+  background: #eaf6ec;
 }
 
 .history-column.completed .history-task {

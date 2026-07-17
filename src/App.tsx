@@ -77,6 +77,12 @@ interface ConfirmState {
   onConfirm: () => void;
 }
 
+interface HistoryTaskEdit {
+  date: string;
+  kind: 'completed' | 'undone';
+  taskId: string;
+}
+
 const downloadTextFile = (content: string, fileName: string) => {
   const blob = new Blob([content], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -299,6 +305,8 @@ const App = () => {
   const [sheetScale, setSheetScale] = useState(1);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
+  const [editingHistoryTask, setEditingHistoryTask] = useState<HistoryTaskEdit | null>(null);
+  const [historyTaskDraft, setHistoryTaskDraft] = useState('');
 
   const resizeDivideAndConquerEditor = () => {
     const editor = divideAndConquerEditorRef.current;
@@ -664,11 +672,84 @@ const App = () => {
   const completedTasks = divideAndConquerBuckets.completed;
   const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
 
+  const markHistoryTaskComplete = (date: string, taskId: string) => {
+    setDailyHistory((records) =>
+      records.map((record) => {
+        if (record.date !== date) {
+          return record;
+        }
+
+        const task = record.undone.find((entry) => entry.id === taskId);
+
+        if (!task) {
+          return record;
+        }
+
+        return {
+          ...record,
+          completed: [...record.completed, task],
+          undone: record.undone.filter((entry) => entry.id !== taskId),
+        };
+      }),
+    );
+    setStatus('Past task marked complete');
+  };
+
+  const startHistoryTaskEdit = (
+    date: string,
+    kind: 'completed' | 'undone',
+    entry: { id: string; text: string },
+  ) => {
+    setEditingHistoryTask({ date, kind, taskId: entry.id });
+    setHistoryTaskDraft(entry.text);
+  };
+
+  const cancelHistoryTaskEdit = () => {
+    setEditingHistoryTask(null);
+    setHistoryTaskDraft('');
+  };
+
+  const saveHistoryTaskEdit = () => {
+    const text = historyTaskDraft.trim();
+
+    if (!editingHistoryTask || !text) {
+      return;
+    }
+
+    setDailyHistory((records) =>
+      records.map((record) =>
+        record.date === editingHistoryTask.date
+          ? {
+              ...record,
+              [editingHistoryTask.kind]: record[editingHistoryTask.kind].map((entry) =>
+                entry.id === editingHistoryTask.taskId ? { ...entry, text } : entry,
+              ),
+            }
+          : record,
+      ),
+    );
+    setEditingHistoryTask(null);
+    setHistoryTaskDraft('');
+    setStatus('Past task updated');
+  };
+
+  const handleHistoryEditKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveHistoryTaskEdit();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      cancelHistoryTaskEdit();
+    }
+  };
+
   const renderHistoryColumn = (
     kind: 'completed' | 'undone',
     title: string,
     entries: Array<{ id: string; text: string }>,
     emptyText: string,
+    editContext?: { date: string; kind: 'completed' | 'undone' },
+    onMarkComplete?: (taskId: string) => void,
   ) => (
     <div className={`history-column ${kind}`}>
       <h3>
@@ -678,7 +759,53 @@ const App = () => {
         <ul className="history-task-list">
           {entries.map((entry) => (
             <li key={entry.id} className="history-task">
-              {entry.text}
+              {editContext &&
+              editingHistoryTask?.date === editContext.date &&
+              editingHistoryTask.kind === editContext.kind &&
+              editingHistoryTask.taskId === entry.id ? (
+                <>
+                  <input
+                    className="history-task-edit-input"
+                    value={historyTaskDraft}
+                    onChange={(event) => setHistoryTaskDraft(event.target.value)}
+                    onKeyDown={handleHistoryEditKeyDown}
+                    aria-label="Edit history task"
+                    autoFocus
+                  />
+                  <span className="history-task-actions">
+                    <button type="button" className="history-save-button" onClick={saveHistoryTaskEdit} disabled={!historyTaskDraft.trim()}>
+                      Save
+                    </button>
+                    <button type="button" className="history-cancel-button" onClick={cancelHistoryTaskEdit}>
+                      Cancel
+                    </button>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="history-task-text">{entry.text}</span>
+                  {editContext ? (
+                    <span className="history-task-actions">
+                      <button
+                        type="button"
+                        className="history-edit-button"
+                        onClick={() => startHistoryTaskEdit(editContext.date, editContext.kind, entry)}
+                      >
+                        Edit
+                      </button>
+                      {onMarkComplete ? (
+                        <button
+                          type="button"
+                          className="history-complete-button"
+                          onClick={() => onMarkComplete(entry.id)}
+                        >
+                          Mark complete
+                        </button>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -1811,8 +1938,21 @@ const App = () => {
                     <span className="history-day-date">{formatHistoryDate(record.date)}</span>
                   </header>
                   <div className="history-columns">
-                    {renderHistoryColumn('completed', 'Completed', record.completed, 'Nothing was completed.')}
-                    {renderHistoryColumn('undone', 'Undone', record.undone, 'Nothing was left undone.')}
+                    {renderHistoryColumn(
+                      'completed',
+                      'Completed',
+                      record.completed,
+                      'Nothing was completed.',
+                      { date: record.date, kind: 'completed' },
+                    )}
+                    {renderHistoryColumn(
+                      'undone',
+                      'Undone',
+                      record.undone,
+                      'Nothing was left undone.',
+                      { date: record.date, kind: 'undone' },
+                      (taskId) => markHistoryTaskComplete(record.date, taskId),
+                    )}
                   </div>
                 </article>
               ))}
