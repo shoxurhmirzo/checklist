@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react';
 import { flushSync } from 'react-dom';
+import { Brain, BrushCleaning, Check, Download, Folder, Minus, Pencil, Plus, Trash2, Upload } from 'lucide-react';
 import {
   COLUMN_COUNT,
   createRow,
@@ -39,12 +40,21 @@ import type {
   SectionId,
 } from './types';
 
-const A4_LANDSCAPE_RATIO = 297 / 210;
 const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
 const COMPLETED_MAGNETIC_DISTANCE = 60;
 const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
-type AppView = 'checklist' | 'divideAndConquer' | 'sortBoard' | 'history';
+const BrainDumpMenuIcon = () => (
+  <Brain className="plan-menu-icon brain-dump-menu-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+);
+
+const TaskSorterMenuIcon = () => (
+  <Folder className="plan-menu-icon task-sorter-menu-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+);
+
+
+type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history';
+type PersistenceFeedback = 'idle' | 'loading' | 'saving' | 'saved';
 type DivideAndConquerQuadrantBucket = Exclude<DivideAndConquerBucket, 'unassigned' | 'completed'>;
 type DivideAndConquerDropPlacement = 'before' | 'after';
 
@@ -61,6 +71,12 @@ interface QuadrantScrollState {
 interface DragInsertionTarget {
   taskId: string;
   placement: DivideAndConquerDropPlacement;
+}
+
+interface CompletedDropFeedback {
+  phase: 'check' | 'count';
+  count: number;
+  sequence: number;
 }
 
 const DIVIDE_AND_CONQUER_QUADRANT_BUCKETS: DivideAndConquerQuadrantBucket[] = [
@@ -283,13 +299,26 @@ const App = () => {
   const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
   const [editingDivideAndConquerTaskId, setEditingDivideAndConquerTaskId] = useState<string | null>(null);
   const [isCompletedMagnetic, setIsCompletedMagnetic] = useState(false);
+  const [completedDropFeedback, setCompletedDropFeedback] = useState<CompletedDropFeedback | null>(null);
+  const completedDropFeedbackSequenceRef = useRef(0);
+  const completedDropFeedbackTimeoutsRef = useRef<number[]>([]);
   const [isLoaded, setIsLoaded] = useState(false);
   const [persistenceBlocked, setPersistenceBlocked] = useState(false);
+  const [persistenceFeedback, setPersistenceFeedback] = useState<PersistenceFeedback>('loading');
   const latestAppStateRef = useRef<AppState | null>(null);
+  const saveFeedbackTimeoutRef = useRef<number | null>(null);
   const rolloverCheckRef = useRef<() => void>(() => {});
   const historyReturnViewRef = useRef<AppView>('checklist');
   const [status, setStatus] = useState('Loading checklist...');
+  const [isSheetMenuOpen, setIsSheetMenuOpen] = useState(false);
+  const [isPlanMenuOpen, setIsPlanMenuOpen] = useState(false);
+  const [isRenamingSheet, setIsRenamingSheet] = useState(false);
+  const [sheetNameDraft, setSheetNameDraft] = useState('');
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const sheetMenuRef = useRef<HTMLDivElement | null>(null);
+  const planMenuRef = useRef<HTMLDivElement | null>(null);
+  const sheetNameInputRef = useRef<HTMLInputElement | null>(null);
+  const renameCancelledRef = useRef(false);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const sheetWrapperRef = useRef<HTMLElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
@@ -304,9 +333,17 @@ const App = () => {
   const [quadrantScrollStates, setQuadrantScrollStates] = useState(createDefaultQuadrantScrollState);
   const [sheetScale, setSheetScale] = useState(1);
   const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+  const [isChecklistFullscreen, setIsChecklistFullscreen] = useState(false);
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [editingHistoryTask, setEditingHistoryTask] = useState<HistoryTaskEdit | null>(null);
   const [historyTaskDraft, setHistoryTaskDraft] = useState('');
+
+  useEffect(
+    () => () => {
+      completedDropFeedbackTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    },
+    [],
+  );
 
   const resizeDivideAndConquerEditor = () => {
     const editor = divideAndConquerEditorRef.current;
@@ -398,6 +435,131 @@ const App = () => {
     DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.forEach(updateQuadrantScrollState);
   };
 
+  const toggleChecklistFullscreen = async () => {
+    const wrapper = sheetWrapperRef.current;
+
+    if (!wrapper) {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await wrapper.requestFullscreen();
+      }
+    } catch {
+      setStatus('Fullscreen is not available in this browser');
+    }
+  };
+
+  useEffect(() => {
+    if (!isSheetMenuOpen && !isPlanMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (
+        target instanceof Node &&
+        (sheetMenuRef.current?.contains(target) || planMenuRef.current?.contains(target))
+      ) {
+        return;
+      }
+
+      setIsSheetMenuOpen(false);
+      setIsPlanMenuOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSheetMenuOpen(false);
+        setIsPlanMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPlanMenuOpen, isSheetMenuOpen]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsChecklistFullscreen(document.fullscreenElement === sheetWrapperRef.current);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    if (activeView !== 'checklist') {
+      return;
+    }
+
+    const handleFullscreenShortcut = (event: KeyboardEvent) => {
+      const target = event.target;
+
+      if (
+        event.code !== 'KeyF' ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (target instanceof HTMLElement &&
+          (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName)))
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      void toggleChecklistFullscreen();
+    };
+
+    window.addEventListener('keydown', handleFullscreenShortcut);
+    return () => window.removeEventListener('keydown', handleFullscreenShortcut);
+  }, [activeView]);
+
+  useEffect(() => {
+    if (!isRenamingSheet) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      sheetNameInputRef.current?.focus();
+      sheetNameInputRef.current?.select();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [isRenamingSheet]);
+
+  useEffect(() => {
+    setIsSheetMenuOpen(false);
+    setIsPlanMenuOpen(false);
+    setIsRenamingSheet(false);
+  }, [activeSheetId, activeView]);
+
+  useEffect(() => {
+    if (
+      !status ||
+      status === 'Loading checklist...' ||
+      status.includes('failed') ||
+      status.startsWith('Could not')
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setStatus((currentStatus) => (currentStatus === status ? '' : currentStatus));
+    }, 2500);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [status]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -446,6 +608,7 @@ const App = () => {
       })
       .finally(() => {
         if (!cancelled) {
+          setPersistenceFeedback('idle');
           setIsLoaded(true);
         }
       });
@@ -473,9 +636,22 @@ const App = () => {
     // Debounced so a burst of keystrokes becomes one IndexedDB write; the
     // pagehide/hidden flush below covers the tail if the tab closes first.
     const timeoutId = window.setTimeout(() => {
+      setPersistenceFeedback('saving');
       void saveAppState(state)
-        .then(() => setStatus('All changes saved locally'))
-        .catch(() => setStatus('Save failed. Export a backup after your next successful save.'));
+        .then(() => {
+          setPersistenceFeedback('saved');
+          if (saveFeedbackTimeoutRef.current !== null) {
+            window.clearTimeout(saveFeedbackTimeoutRef.current);
+          }
+          saveFeedbackTimeoutRef.current = window.setTimeout(() => {
+            setPersistenceFeedback('idle');
+            saveFeedbackTimeoutRef.current = null;
+          }, 1200);
+        })
+        .catch(() => {
+          setPersistenceFeedback('idle');
+          setStatus('Save failed. Export a backup after your next successful save.');
+        });
     }, 400);
 
     return () => window.clearTimeout(timeoutId);
@@ -489,6 +665,15 @@ const App = () => {
     persistenceBlocked,
     sheets,
   ]);
+
+  useEffect(
+    () => () => {
+      if (saveFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(saveFeedbackTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!isLoaded || persistenceBlocked) {
@@ -583,19 +768,18 @@ const App = () => {
       const naturalHeight = sheet.scrollHeight;
       const wrapperTop = wrapper.getBoundingClientRect().top;
       const workspaceTop = workspace.getBoundingClientRect().top;
-      const availableHeight = window.innerHeight - (wrapperTop - workspaceTop) - 12;
+      const isFullscreen = document.fullscreenElement === wrapper;
+      const availableHeight = isFullscreen
+        ? wrapper.clientHeight - 12
+        : window.innerHeight - (wrapperTop - workspaceTop) - 12;
 
       if (availableWidth === 0 || naturalWidth === 0 || naturalHeight === 0 || availableHeight <= 0) {
         return;
       }
 
-      const widthLimitedWidth = availableWidth;
-      const widthLimitedHeight = widthLimitedWidth / A4_LANDSCAPE_RATIO;
-      const heightLimitedHeight = availableHeight;
-      const heightLimitedWidth = heightLimitedHeight * A4_LANDSCAPE_RATIO;
-      const nextFrameWidth = widthLimitedHeight > availableHeight ? heightLimitedWidth : widthLimitedWidth;
-      const nextFrameHeight = widthLimitedHeight > availableHeight ? heightLimitedHeight : widthLimitedHeight;
-      const nextScale = Math.min(nextFrameWidth / naturalWidth, nextFrameHeight / naturalHeight);
+      const nextScale = Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight);
+      const nextFrameWidth = naturalWidth * nextScale;
+      const nextFrameHeight = naturalHeight * nextScale;
 
       setSheetScale(nextScale);
       setFrameSize({
@@ -882,7 +1066,6 @@ const App = () => {
   const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask) => {
     const isSourceTaskPlaceholder = draggedTaskId === task.id;
     const isEditing = editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
-    const usesTextActions = task.bucket === 'unassigned';
     const insertionClass =
       dragInsertionTarget?.taskId === task.id ? `insert-${dragInsertionTarget.placement}` : '';
 
@@ -930,7 +1113,7 @@ const App = () => {
             <span className="sort-task-card-actions">
               <button
                 type="button"
-                className={`sort-task-card-action ${usesTextActions ? 'text-action' : ''}`}
+                className="sort-task-card-action"
                 aria-label="Edit task"
                 draggable={false}
                 onClick={(event) => {
@@ -940,11 +1123,11 @@ const App = () => {
                 onDragStart={(event) => event.preventDefault()}
                 title="Edit task"
               >
-                {usesTextActions ? 'edit' : <span aria-hidden="true">✎</span>}
+                <Pencil className="sort-task-card-action-icon" size={15} strokeWidth={2} aria-hidden="true" />
               </button>
               <button
                 type="button"
-                className={`sort-task-card-action danger ${usesTextActions ? 'text-action' : ''}`}
+                className="sort-task-card-action danger"
                 aria-label="Delete task"
                 draggable={false}
                 onClick={(event) => {
@@ -954,7 +1137,7 @@ const App = () => {
                 onDragStart={(event) => event.preventDefault()}
                 title="Delete task"
               >
-                {usesTextActions ? 'delete' : <span aria-hidden="true">×</span>}
+                <Trash2 className="sort-task-card-action-icon" size={15} strokeWidth={2} aria-hidden="true" />
               </button>
             </span>
           </>
@@ -983,7 +1166,7 @@ const App = () => {
   }, [activeSheet, sheets]);
 
   useEffect(() => {
-    if (activeView !== 'divideAndConquer') {
+    if (activeView !== 'planner') {
       return;
     }
 
@@ -991,7 +1174,7 @@ const App = () => {
   }, [activeView]);
 
   useLayoutEffect(() => {
-    if (activeView !== 'divideAndConquer') {
+    if (activeView !== 'planner') {
       return;
     }
 
@@ -999,7 +1182,7 @@ const App = () => {
   }, [activeView, divideAndConquerDraftRows]);
 
   useEffect(() => {
-    if (activeView !== 'divideAndConquer') {
+    if (activeView !== 'planner') {
       return;
     }
 
@@ -1016,6 +1199,50 @@ const App = () => {
         sheet.id === activeSheetId ? { ...updater(sheet), updatedAt: new Date().toISOString() } : sheet,
       ),
     );
+  };
+
+  const startSheetRename = () => {
+    renameCancelledRef.current = false;
+    setSheetNameDraft(activeSheet?.name ?? '');
+    setIsRenamingSheet(true);
+  };
+
+  const cancelSheetRename = () => {
+    renameCancelledRef.current = true;
+    setIsRenamingSheet(false);
+  };
+
+  const commitSheetRename = () => {
+    if (renameCancelledRef.current) {
+      renameCancelledRef.current = false;
+      return;
+    }
+
+    if (activeSheet && sheetNameDraft !== activeSheet.name) {
+      updateActiveSheet((sheet) => ({ ...sheet, name: sheetNameDraft }));
+      setStatus('Sheet renamed');
+    }
+
+    setIsRenamingSheet(false);
+  };
+
+  const handleSheetRenameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.currentTarget.blur();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      renameCancelledRef.current = true;
+      setIsRenamingSheet(false);
+    }
+  };
+
+  const runSheetMenuAction = (action: () => void) => {
+    setIsSheetMenuOpen(false);
+    action();
   };
 
   const updateSectionRows = (
@@ -1273,11 +1500,7 @@ const App = () => {
     setStatus('Tasks ready to sort');
   };
 
-  const handleClearMatrixQuadrants = () => {
-    if (!hasSortableStateToClear) {
-      return;
-    }
-
+  const clearMatrixQuadrants = () => {
     setDivideAndConquerItems((currentItems) =>
       currentItems.map((item) =>
         item.id === currentFocusTaskId || isDivideAndConquerQuadrantBucket(item.bucket)
@@ -1290,6 +1513,19 @@ const App = () => {
     setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
     setStatus('Sorting board cleared');
+  };
+
+  const handleClearMatrixQuadrants = () => {
+    if (!hasSortableStateToClear) {
+      return;
+    }
+
+    setConfirmState({
+      title: 'Clear all sorted tasks?',
+      message: 'This will move every task back to the unassigned list and clear the current focus.',
+      confirmLabel: 'Clear all',
+      onConfirm: clearMatrixQuadrants,
+    });
   };
 
   const scrollQuadrantTaskListToBottom = (bucket: DivideAndConquerQuadrantBucket) => {
@@ -1380,9 +1616,40 @@ const App = () => {
     });
   };
 
+  const showCompletedDropFeedback = (count: number) => {
+    completedDropFeedbackTimeoutsRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    completedDropFeedbackTimeoutsRef.current = [];
+
+    const sequence = completedDropFeedbackSequenceRef.current + 1;
+    completedDropFeedbackSequenceRef.current = sequence;
+    setCompletedDropFeedback({ phase: 'check', count, sequence });
+
+    const countTimeoutId = window.setTimeout(() => {
+      setCompletedDropFeedback((currentFeedback) =>
+        currentFeedback?.sequence === sequence ? { ...currentFeedback, phase: 'count' } : currentFeedback,
+      );
+    }, 520);
+    const hideTimeoutId = window.setTimeout(() => {
+      setCompletedDropFeedback((currentFeedback) =>
+        currentFeedback?.sequence === sequence ? null : currentFeedback,
+      );
+      completedDropFeedbackTimeoutsRef.current = [];
+    }, 1450);
+
+    completedDropFeedbackTimeoutsRef.current = [countTimeoutId, hideTimeoutId];
+  };
+
   const focusDivideAndConquerTask = (taskId: string) => {
     if (!divideAndConquerItems.some((item) => item.id === taskId)) {
       return;
+    }
+
+    const previousFocusTask = currentFocusTaskId
+      ? divideAndConquerItems.find((item) => item.id === currentFocusTaskId)
+      : null;
+
+    if (previousFocusTask && previousFocusTask.id !== taskId && previousFocusTask.bucket !== 'completed') {
+      showCompletedDropFeedback(todayCompletedTasks.length + 1);
     }
 
     setDivideAndConquerItems((currentItems) =>
@@ -1401,6 +1668,12 @@ const App = () => {
   const completeCurrentFocusTask = () => {
     if (!currentFocusTaskId) {
       return;
+    }
+
+    const focusTask = divideAndConquerItems.find((item) => item.id === currentFocusTaskId);
+
+    if (focusTask && focusTask.bucket !== 'completed') {
+      showCompletedDropFeedback(todayCompletedTasks.length + 1);
     }
 
     setDivideAndConquerItems((currentItems) =>
@@ -1463,13 +1736,18 @@ const App = () => {
     setIsCompletedMagnetic(false);
 
     // The dataTransfer text can be anything dragged in from outside the app.
-    if (!taskId || !divideAndConquerItems.some((item) => item.id === taskId)) {
+    const movingTask = taskId ? divideAndConquerItems.find((item) => item.id === taskId) : null;
+
+    if (!taskId || !movingTask) {
       return;
     }
 
     moveDivideAndConquerTask(taskId, bucket);
 
     if (bucket === 'completed') {
+      if (movingTask.bucket !== 'completed') {
+        showCompletedDropFeedback(todayCompletedTasks.length + 1);
+      }
       setStatus('Task completed');
     }
   };
@@ -1587,94 +1865,262 @@ const App = () => {
   };
 
   if (!isLoaded || !activeSheet) {
-    return <div className="app-shell">Loading...</div>;
+    return (
+      <div className="app-shell loading-screen" role="status" aria-live="polite">
+        <span className="loading-spinner" aria-hidden="true" />
+        <span>Loading checklist</span>
+      </div>
+    );
   }
 
   return (
     <div className="app-shell">
       <main ref={workspaceRef} className="workspace">
         <section className="top-controls">
-          <div className="controls-row">
+          <div className={`controls-row ${activeView === 'checklist' ? 'checklist-controls-row' : ''}`}>
             {activeView === 'checklist' ? (
               <>
-                <label className="inline-field">
-                  <span>Sheet</span>
-                  <select value={activeSheetId} onChange={(event) => setActiveSheetId(event.target.value)}>
-                    {sheets.map((sheet) => (
-                      <option key={sheet.id} value={sheet.id}>
-                        {sheet.name || 'Untitled sheet'}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="inline-field sheet-name-field">
-                  <span>Name</span>
-                  <input
-                    type="text"
-                    value={activeSheet.name}
-                    onChange={(event) =>
-                      updateActiveSheet((sheet) => ({
-                        ...sheet,
-                        name: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <button type="button" className="new-sheet-button" onClick={handleCreateSheet}>
-                  New sheet
-                </button>
-                <button type="button" className="delete-sheet-button" onClick={() => handleDeleteSheet(activeSheet.id)}>
-                  Delete sheet
-                </button>
-                <button type="button" className="nav-link-button" onClick={() => setActiveView('divideAndConquer')}>
-                  D&amp;Q
-                </button>
-                <button type="button" className="export-button" onClick={handleExport}>
-                  Export
-                </button>
-                <button type="button" className="import-button" onClick={handleImportClick}>
-                  Import
-                </button>
+                <div ref={planMenuRef} className={`plan-menu-root ${isPlanMenuOpen ? 'menu-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="plan-menu-trigger"
+                    onClick={() => {
+                      setIsSheetMenuOpen(false);
+                      setIsPlanMenuOpen((isOpen) => !isOpen);
+                    }}
+                    aria-haspopup="menu"
+                    aria-expanded={isPlanMenuOpen}
+                  >
+                    Daily plan
+                  </button>
+                  <div className="plan-options-menu" role="menu" aria-label="Daily plan">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsPlanMenuOpen(false);
+                        setActiveView('planner');
+                      }}
+                    >
+                      <span>Brain dump</span>
+                      <BrainDumpMenuIcon />
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setIsPlanMenuOpen(false);
+                        setActiveView('sortBoard');
+                      }}
+                    >
+                      <span>Task sorter</span>
+                      <TaskSorterMenuIcon />
+                    </button>
+                  </div>
+                </div>
+                <div ref={sheetMenuRef} className={`sheet-menu-root ${isSheetMenuOpen ? 'menu-open' : ''}`}>
+                  <button
+                    type="button"
+                    className="sheet-menu-toggle"
+                    onClick={() => {
+                      setIsPlanMenuOpen(false);
+                      setIsSheetMenuOpen((isOpen) => !isOpen);
+                    }}
+                    aria-label="Sheet options"
+                    aria-haspopup="menu"
+                    aria-expanded={isSheetMenuOpen}
+                    title="Sheet options"
+                  >
+                    ⋯
+                  </button>
+                  {isSheetMenuOpen ? (
+                    <div className="sheet-options-menu" role="menu" aria-label="Sheet options">
+                      <label className="sheet-switch-menu-item">
+                        <span>Switch sheet</span>
+                        <select
+                          aria-label="Switch sheet"
+                          value={activeSheetId}
+                          onChange={(event) => setActiveSheetId(event.target.value)}
+                        >
+                          {sheets.map((sheet) => (
+                            <option key={sheet.id} value={sheet.id}>
+                              {sheet.name || 'Untitled sheet'}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className="sheet-options-divider" role="separator" />
+                      {isRenamingSheet ? (
+                        <div className="sheet-rename-menu-item">
+                          <span>Rename sheet</span>
+                          <input
+                            ref={sheetNameInputRef}
+                            type="text"
+                            value={sheetNameDraft}
+                            onChange={(event) => setSheetNameDraft(event.target.value)}
+                            onBlur={commitSheetRename}
+                            onKeyDown={handleSheetRenameKeyDown}
+                            aria-label="New sheet name"
+                          />
+                          <div className="sheet-rename-actions">
+                            <button
+                              type="button"
+                              className="save-action-button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={commitSheetRename}
+                            >
+                              Save
+                            </button>
+                            <button
+                              type="button"
+                              className="cancel-action-button"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={cancelSheetRename}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" role="menuitem" onClick={startSheetRename}>
+                          Rename
+                          <Pencil className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => runSheetMenuAction(handleCreateSheet)}
+                      >
+                        New sheet
+                        <Plus className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                      <div className="sheet-options-divider" role="separator" />
+                      <button type="button" role="menuitem" onClick={() => runSheetMenuAction(handleExport)}>
+                        Export
+                        <Upload className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                      <button type="button" role="menuitem" onClick={() => runSheetMenuAction(handleImportClick)}>
+                        Import
+                        <Download className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                      <div className="sheet-options-divider" role="separator" />
+                      <button
+                        type="button"
+                        className="danger-menu-item"
+                        role="menuitem"
+                        onClick={() => runSheetMenuAction(() => handleDeleteSheet(activeSheet.id))}
+                      >
+                        Delete sheet
+                        <Trash2 className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
                 <input ref={importInputRef} hidden type="file" accept="application/json" onChange={handleImport} />
-                <span
-                  className="mark-totals"
-                  aria-label={`Plus total ${markTotals.plus}, minus total ${markTotals.minus}`}
-                >
-                  <span className="mark-total plus-total">+ {markTotals.plus}</span>
-                  <span className="mark-total minus-total">- {markTotals.minus}</span>
-                </span>
-                <span className="status-text">{status}</span>
+                {persistenceFeedback !== 'idle' ? (
+                  <span
+                    className={`save-feedback-indicator save-feedback-${persistenceFeedback}`}
+                    role="status"
+                    aria-live="polite"
+                    aria-label={
+                      persistenceFeedback === 'saved'
+                        ? 'Changes saved'
+                        : persistenceFeedback === 'loading'
+                          ? 'Loading checklist'
+                          : 'Saving changes'
+                    }
+                  >
+                    {persistenceFeedback === 'saved' ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m5 12 4.2 4.2L19 6.5" />
+                      </svg>
+                    ) : (
+                      <span className="loading-spinner" aria-hidden="true" />
+                    )}
+                  </span>
+                ) : null}
               </>
-            ) : activeView === 'divideAndConquer' ? (
+            ) : activeView === 'planner' ? (
               <>
-                <button type="button" className="nav-text-link" onClick={() => setActiveView('checklist')}>
-                  Checklist
+                <button
+                  type="button"
+                  className="back-icon-button"
+                  onClick={() => setActiveView('checklist')}
+                  aria-label="Back to checklist"
+                  title="Back to checklist"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M19 12H5M11 18l-6-6 6-6" />
+                  </svg>
                 </button>
-                <button type="button" className="nav-text-link" onClick={openHistoryView}>
-                  History
+                <button
+                  type="button"
+                  className="history-icon-button"
+                  onClick={openHistoryView}
+                  aria-label="History"
+                  title="History"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  className="forward-icon-button"
+                  onClick={() => setActiveView('sortBoard')}
+                  aria-label="Open task sorter"
+                  title="Open task sorter"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
                 </button>
               </>
             ) : activeView === 'sortBoard' ? (
               <>
-                <button type="button" className="nav-link-button" onClick={() => setActiveView('divideAndConquer')}>
-                  Back to tasks
+                <button
+                  type="button"
+                  className="back-icon-button"
+                  onClick={() => setActiveView('planner')}
+                  aria-label="Back to daily plan"
+                  title="Back to daily plan"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M19 12H5M11 18l-6-6 6-6" />
+                  </svg>
                 </button>
                 <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
                   Checklist
                 </button>
-                <button type="button" className="nav-link-button" onClick={openHistoryView}>
-                  History
+                <button
+                  type="button"
+                  className="history-icon-button"
+                  onClick={openHistoryView}
+                  aria-label="History"
+                  title="History"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
                 </button>
               </>
             ) : (
               <>
                 <button
                   type="button"
-                  className="nav-link-button"
+                  className="back-icon-button"
                   onClick={() => setActiveView(historyReturnViewRef.current)}
+                  aria-label="Back"
+                  title="Back"
                 >
-                  Back
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M19 12H5M11 18l-6-6 6-6" />
+                  </svg>
                 </button>
                 <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
                   Checklist
@@ -1684,11 +2130,16 @@ const App = () => {
           </div>
         </section>
 
-        {activeView === 'divideAndConquer' ? (
+        {activeView === 'planner' ? (
           <section className="dq-page" aria-labelledby="dq-title">
             <div className="dq-editor-shell">
-              <h1 id="dq-title">Dump your tasks</h1>
-              <div ref={divideAndConquerEditorRef} className="dq-task-editor" role="list" aria-label="D&Q tasks">
+              <h1 id="dq-title">Daily plan</h1>
+              <div
+                ref={divideAndConquerEditorRef}
+                className="dq-task-editor"
+                role="list"
+                aria-label="Daily plan tasks"
+              >
                 {divideAndConquerDraftRows.map((row, index) => (
                   <div key={row.id} className="dq-task-row" role="listitem">
                     <span className="dq-task-number" aria-hidden="true">
@@ -1699,6 +2150,7 @@ const App = () => {
                       data-dq-row-index={index}
                       rows={1}
                       value={row.text}
+                      placeholder={index === 0 ? 'What do you need to do today?' : 'Add another task…'}
                       onChange={(event) => handleDivideAndConquerDraftChange(row.id, event.target.value)}
                       onKeyDown={(event) => handleDivideAndConquerDraftKeyDown(event, index)}
                       onPaste={(event) => handleDivideAndConquerDraftPaste(event, index)}
@@ -1709,6 +2161,9 @@ const App = () => {
                 ))}
               </div>
               <div className="dq-editor-actions">
+                <span className="dq-task-count" aria-live="polite">
+                  {divideAndConquerTaskCount} {divideAndConquerTaskCount === 1 ? 'task' : 'tasks'} added
+                </span>
                 <button
                   type="button"
                   className="sort-out-button"
@@ -1716,11 +2171,17 @@ const App = () => {
                   disabled={!canSortDivideAndConquerTasks}
                   title={
                     canSortDivideAndConquerTasks
-                      ? 'Sort tasks'
-                      : `Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks to sort`
+                      ? 'Prioritize tasks'
+                      : `Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks to prioritize`
                   }
                 >
-                  Sort them out
+                  Prioritize tasks
+                  <img
+                    className="sort-out-button-icon"
+                    src="https://cdn-icons-png.flaticon.com/512/8989/8989469.png"
+                    alt=""
+                    aria-hidden="true"
+                  />
                 </button>
               </div>
             </div>
@@ -1733,7 +2194,7 @@ const App = () => {
           >
             <div className="sort-board-shell">
               <div className="sort-board-intro">
-                <h1 id="sort-board-title">Sort them out</h1>
+                <h1 id="sort-board-title">Prioritize your day</h1>
                 <div className="sort-board-intro-actions">
                   <p
                     className={`sort-focus-line ${currentFocusTask ? 'has-focus' : ''} ${
@@ -1815,7 +2276,7 @@ const App = () => {
                       <span className="sort-axis-label">Productive</span>
                       <span className="sort-axis-label">Unproductive</span>
                     </div>
-                    <div className="sort-matrix" role="application" aria-label="Divide and conquer matrix">
+                    <div className="sort-matrix" role="application" aria-label="Daily planning matrix">
                       <div className="sort-matrix-body">
                         <div
                           className={`sort-cell sort-cell-top-left ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -1906,7 +2367,30 @@ const App = () => {
                       onDrop={(event) => handleDivideAndConquerDrop(event, 'completed')}
                       aria-label="Completed tasks"
                     >
-                      <div className="sort-completion-title">Completed</div>
+                      <div className="sort-completion-header">
+                        <div className="sort-completion-title">Completed</div>
+                        <div className="sort-completion-feedback-slot" aria-live="polite" aria-atomic="true">
+                          {completedDropFeedback?.phase === 'check' ? (
+                            <div
+                              key={`check-${completedDropFeedback.sequence}`}
+                              className="sort-completion-feedback sort-completion-feedback-check"
+                              role="status"
+                              aria-label="Task completed"
+                            >
+                              <Check size={27} strokeWidth={2.7} aria-hidden="true" />
+                            </div>
+                          ) : completedDropFeedback?.phase === 'count' ? (
+                            <div
+                              key={`count-${completedDropFeedback.sequence}`}
+                              className="sort-completion-feedback sort-completion-feedback-count"
+                              role="status"
+                              aria-label={`${completedDropFeedback.count} tasks completed`}
+                            >
+                              <span aria-hidden="true">x{completedDropFeedback.count}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
                       <div className="sort-completion-list">
                         {completedTasks.map(renderDivideAndConquerTaskCard)}
                       </div>
@@ -1977,7 +2461,14 @@ const App = () => {
               className="checklist-sheet"
               style={{ transform: `scale(${sheetScale})` }}
             >
-            <table>
+            <table className="checklist-table">
+              <colgroup>
+                <col className="checklist-section-column" />
+                <col className="checklist-label-column" />
+                {Array.from({ length: COLUMN_COUNT }, (_, index) => (
+                  <col key={index} className="checklist-day-column" />
+                ))}
+              </colgroup>
               <thead>
                 <tr>
                   <th className="section-spacer" />
@@ -2097,6 +2588,28 @@ const App = () => {
             </table>
             </div>
           </div>
+          <div
+            className="checklist-status-bar"
+            aria-label={`Checklist totals: plus ${markTotals.plus}, minus ${markTotals.minus}`}
+          >
+            <span className="mark-totals">
+              <span className="mark-total plus-total" title="Completed tasks marked as plus">
+                + {markTotals.plus}
+              </span>
+              <span className="mark-total minus-total" title="Tasks marked as minus">
+                - {markTotals.minus}
+              </span>
+            </span>
+          </div>
+          <button
+            type="button"
+            className="checklist-fullscreen-button"
+            onClick={() => void toggleChecklistFullscreen()}
+            aria-label={isChecklistFullscreen ? 'Exit fullscreen checklist' : 'Open fullscreen checklist'}
+            title={isChecklistFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen checklist (F)'}
+          >
+            F
+          </button>
         </section>
         )}
       </main>
@@ -2118,7 +2631,7 @@ const App = () => {
             <h2 id="confirm-title">{confirmState.title}</h2>
             <p>{confirmState.message}</p>
             <div className="confirm-actions">
-              <button type="button" className="plain-button" onClick={closeConfirm} autoFocus>
+              <button type="button" className="plain-button cancel-action-button" onClick={closeConfirm} autoFocus>
                 Cancel
               </button>
               <button type="button" className="confirm-delete-button" onClick={runConfirm}>
@@ -2287,10 +2800,20 @@ const SectionBlock = ({
                     }`}
                     title={checkState ? formatLogTime(checkState) : undefined}
                   >
-                    {isDone ? '+' : isUndone ? '-' : ''}
+                    {isDone ? (
+                      <Plus className="cell-mark-icon" size={16} strokeWidth={2.2} aria-hidden="true" />
+                    ) : isUndone ? (
+                      <Minus className="cell-mark-icon" size={16} strokeWidth={2.2} aria-hidden="true" />
+                    ) : null}
                   </button>
                   {isMenuOpen ? (
-                    <div className="cell-mark-menu" role="menu" aria-label="Cell mark options">
+                    <div
+                      className={`cell-mark-menu ${rowIndex < 2 ? 'cell-mark-menu-down' : ''} ${
+                        columnIndex >= COLUMN_COUNT - 2 ? 'cell-mark-menu-left' : ''
+                      }`}
+                      role="menu"
+                      aria-label="Cell mark options"
+                    >
                       <button
                         type="button"
                         className="cell-mark-option plus-option"
@@ -2298,7 +2821,7 @@ const SectionBlock = ({
                         onClick={() => handleMarkDone(row.id, columnIndex)}
                         aria-label="Mark plus"
                       >
-                        +
+                        <Plus className="cell-mark-icon" size={17} strokeWidth={2.1} aria-hidden="true" />
                       </button>
                       <button
                         type="button"
@@ -2307,7 +2830,7 @@ const SectionBlock = ({
                         onClick={() => handleMarkUndone(row.id, columnIndex)}
                         aria-label="Mark minus"
                       >
-                        -
+                        <Minus className="cell-mark-icon" size={17} strokeWidth={2.1} aria-hidden="true" />
                       </button>
                       <button
                         type="button"
@@ -2316,7 +2839,7 @@ const SectionBlock = ({
                         onClick={() => handleClearMark(row.id, columnIndex)}
                         aria-label="Clear mark"
                       >
-                        ×
+                        <BrushCleaning className="cell-mark-icon" size={17} strokeWidth={2.1} aria-hidden="true" />
                       </button>
                     </div>
                   ) : null}
@@ -2339,9 +2862,6 @@ const SectionBlock = ({
               placeholder="+ Row"
               aria-label={`Add ${section.title} row`}
             />
-            <button type="button" className="plain-button" onClick={saveNewRow} aria-label={`Save ${section.title} row`}>
-              +
-            </button>
           </div>
         </td>
         {Array.from({ length: COLUMN_COUNT }, (_, index) => (
