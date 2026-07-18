@@ -1441,21 +1441,27 @@ const App = () => {
   const completedTasks = divideAndConquerBuckets.completed;
   const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
   const sleepToday = getLocalDateString();
-  const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday) ?? {
-    date: sleepToday,
-    bedtime: '',
-    wakeTime: '',
-  };
-  // Today lives in the card above; History is strictly past days.
-  const visibleSleepWeeks = groupSleepLogRecordsByWeek(
-    sleepLogRecords.filter((record) => record.date !== sleepToday),
-  );
-  const sleepDurationText = formatSleepDuration(sleepTodayRecord.bedtime, sleepTodayRecord.wakeTime);
   const sleepYesterday = (() => {
     const date = new Date(`${sleepToday}T00:00:00`);
     date.setDate(date.getDate() - 1);
     return getLocalDateString(date);
   })();
+  const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday);
+  const sleepYesterdayRecord = sleepLogRecords.find((record) => record.date === sleepYesterday);
+  // A night belongs to the day the bedtime was logged. Until today gets its own
+  // entry, yesterday's bedtime with no wake time is still "last night", so the
+  // card keeps pointing at it and the morning wake-up completes that record.
+  const sleepActiveRecord =
+    !sleepTodayRecord && sleepYesterdayRecord?.bedtime && !sleepYesterdayRecord.wakeTime
+      ? sleepYesterdayRecord
+      : (sleepTodayRecord ?? { date: sleepToday, bedtime: '', wakeTime: '' });
+  const sleepActiveDate = sleepActiveRecord.date;
+  const sleepCardIsLastNight = sleepActiveDate !== sleepToday;
+  // The active night lives in the card above; History is strictly other days.
+  const visibleSleepWeeks = groupSleepLogRecordsByWeek(
+    sleepLogRecords.filter((record) => record.date !== sleepToday && record.date !== sleepActiveDate),
+  );
+  const sleepDurationText = formatSleepDuration(sleepActiveRecord.bedtime, sleepActiveRecord.wakeTime);
 
   const markHistoryTaskComplete = (date: string, taskId: string) => {
     setDailyHistory((records) =>
@@ -3149,14 +3155,14 @@ const App = () => {
               <header className="sleep-log-heading">
                 <div className="sleep-log-heading-row">
                   <div>
-                    <h1 id="sleep-log-title">Sleep <span>· {formatSleepLogDate(sleepToday)}</span></h1>
+                    <h1 id="sleep-log-title">Sleep <span>· {formatSleepLogDate(sleepActiveDate)}</span></h1>
                   </div>
                   <div className="sleep-log-actions">
-                    {sleepLogRecords.some((record) => record.date === sleepToday) ? (
+                    {sleepLogRecords.some((record) => record.date === sleepActiveDate) ? (
                       <button
                         type="button"
                         className="sleep-text-button sleep-remove-button"
-                        onClick={() => deleteSleepLogRecord(sleepToday)}
+                        onClick={() => deleteSleepLogRecord(sleepActiveDate)}
                       >
                         Remove
                       </button>
@@ -3169,11 +3175,11 @@ const App = () => {
                   <div className="sleep-time-field">
                     <span>Bed</span>
                     <SleepTimePicker
-                      value={sleepTodayRecord.bedtime}
-                      ariaLabel="Bedtime for today"
+                      value={sleepActiveRecord.bedtime}
+                      ariaLabel={sleepCardIsLastNight ? 'Bedtime for last night' : 'Bedtime for today'}
                       triggerClassName="sleep-editor-bedtime"
                       icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                      onChange={(time) => updateSleepLogRecord(sleepToday, { bedtime: time })}
+                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { bedtime: time })}
                     />
                   </div>
                   {sleepDurationText !== '—' ? (
@@ -3186,10 +3192,10 @@ const App = () => {
                   <div className="sleep-time-field">
                     <span>Wake</span>
                     <SleepTimePicker
-                      value={sleepTodayRecord.wakeTime}
-                      ariaLabel="Wake-up time for today"
+                      value={sleepActiveRecord.wakeTime}
+                      ariaLabel={sleepCardIsLastNight ? 'Wake-up time for last night' : 'Wake-up time for today'}
                       icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
-                      onChange={(time) => updateSleepLogRecord(sleepToday, { wakeTime: time })}
+                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { wakeTime: time })}
                     />
                   </div>
                 </div>
