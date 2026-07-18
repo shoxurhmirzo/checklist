@@ -54,12 +54,19 @@ export interface DailyHistoryRecord {
   undone: DailyHistoryEntry[];
 }
 
+export interface SleepLogRecord {
+  date: string;
+  bedtime: string;
+  wakeTime: string;
+}
+
 export interface AppState {
   sheets: ChecklistSheet[];
   divideAndConquerText: string;
   divideAndConquerItems: DivideAndConquerTask[];
   currentFocusTaskId: string | null;
   dailyHistory: DailyHistoryRecord[];
+  sleepLogRecords: SleepLogRecord[];
   lastRolloverDate: string | null;
 }
 
@@ -71,5 +78,6 @@ export interface BackupPayload {
   divideAndConquerItems?: DivideAndConquerTask[];
   currentFocusTaskId?: string | null;
   dailyHistory?: DailyHistoryRecord[];
+  sleepLogRecords?: SleepLogRecord[];
   lastRolloverDate?: string | null;
 }

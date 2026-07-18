@@ -8,14 +8,15 @@ import type {
   DailyHistoryRecord,
   DivideAndConquerBucket,
   DivideAndConquerTask,
+  SleepLogRecord,
 } from './types';
 
 const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
 const LEGACY_SHEETS_STORE_KEY = 'sheets';
 const APP_STATE_STORE_KEY = 'state';
-const BACKUP_VERSION = 6;
-const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, BACKUP_VERSION];
+const BACKUP_VERSION = 7;
+const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, BACKUP_VERSION];
 
 export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
 export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
@@ -153,6 +154,7 @@ export const normalizeCurrentFocusTaskId = (value: unknown, items: DivideAndConq
   typeof value === 'string' && items.some((item) => item.id === value) ? value : null;
 
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 
 const normalizeDailyHistoryEntries = (value: unknown): DailyHistoryEntry[] => {
   if (!Array.isArray(value)) {
@@ -192,6 +194,28 @@ export const normalizeDailyHistory = (value: unknown): DailyHistoryRecord[] => {
     .filter((record, index, records) => index === 0 || record.date !== records[index - 1].date);
 };
 
+export const normalizeSleepLogRecords = (value: unknown): SleepLogRecord[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (record): record is SleepLogRecord =>
+        typeof record === 'object' &&
+        record !== null &&
+        typeof (record as SleepLogRecord).date === 'string' &&
+        LOCAL_DATE_PATTERN.test((record as SleepLogRecord).date) &&
+        typeof (record as SleepLogRecord).bedtime === 'string' &&
+        ((record as SleepLogRecord).bedtime === '' || LOCAL_TIME_PATTERN.test((record as SleepLogRecord).bedtime)) &&
+        typeof (record as SleepLogRecord).wakeTime === 'string' &&
+        ((record as SleepLogRecord).wakeTime === '' || LOCAL_TIME_PATTERN.test((record as SleepLogRecord).wakeTime)),
+    )
+    .map((record) => ({ date: record.date, bedtime: record.bedtime, wakeTime: record.wakeTime }))
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .filter((record, index, records) => index === 0 || record.date !== records[index - 1].date);
+};
+
 export const normalizeLastRolloverDate = (value: unknown): string | null =>
   typeof value === 'string' && LOCAL_DATE_PATTERN.test(value) ? value : null;
 
@@ -213,6 +237,7 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
       divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
       currentFocusTaskId: null,
       dailyHistory: [],
+      sleepLogRecords: [],
       lastRolloverDate: null,
     };
   }
@@ -235,6 +260,7 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
     divideAndConquerItems,
     currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
     dailyHistory: normalizeDailyHistory(state.dailyHistory),
+    sleepLogRecords: normalizeSleepLogRecords(state.sleepLogRecords),
     lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
   };
 };
@@ -245,6 +271,7 @@ const createDefaultAppState = (): AppState => ({
   divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   currentFocusTaskId: null,
   dailyHistory: [],
+  sleepLogRecords: [],
   lastRolloverDate: null,
 });
 
@@ -331,6 +358,7 @@ export const saveAppState = async (state: AppState): Promise<void> =>
       divideAndConquerItems,
       currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
       dailyHistory: normalizeDailyHistory(state.dailyHistory),
+      sleepLogRecords: normalizeSleepLogRecords(state.sleepLogRecords),
       lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
     };
     const request = store.put(normalizedState, APP_STATE_STORE_KEY);
@@ -347,6 +375,7 @@ export const createBackupPayload = (state: AppState): BackupPayload => ({
   divideAndConquerItems: state.divideAndConquerItems,
   currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, state.divideAndConquerItems),
   dailyHistory: state.dailyHistory,
+  sleepLogRecords: state.sleepLogRecords,
   lastRolloverDate: state.lastRolloverDate,
 });
 
@@ -404,6 +433,16 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
                 typeof entry.id === 'string' &&
                 typeof entry.text === 'string',
             ),
+        ))) &&
+    (payload.sleepLogRecords === undefined ||
+      (Array.isArray(payload.sleepLogRecords) &&
+        payload.sleepLogRecords.every(
+          (record) =>
+            typeof record === 'object' &&
+            record !== null &&
+            typeof record.date === 'string' &&
+            typeof record.bedtime === 'string' &&
+            typeof record.wakeTime === 'string',
         ))) &&
     (payload.divideAndConquerItems === undefined ||
       (Array.isArray(payload.divideAndConquerItems) &&

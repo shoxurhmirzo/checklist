@@ -12,6 +12,18 @@
   box-sizing: border-box;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -66,6 +78,10 @@ button {
 .checklist-controls-row {
   position: relative;
   gap: 0.5rem;
+}
+
+.sleep-log-controls-row {
+  position: relative;
 }
 
 .loading-screen {
@@ -202,6 +218,10 @@ button {
   background: #fff;
   text-decoration: none;
   text-underline-offset: 2px;
+}
+
+.sleep-log-nav-button {
+  min-width: 6rem;
 }
 
 .plan-menu-root {
@@ -630,15 +650,33 @@ button:focus-visible {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  align-items: stretch;
+}
+
+.checklist-sheet-viewport {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
   align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.checklist-bottom-dock {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: calc(1cm + 0.5rem);
+  padding: 0.25rem 0.75rem;
+  background: #fff;
 }
 
 .checklist-status-bar {
-  position: absolute;
-  right: 3.5rem;
-  bottom: 0.75rem;
-  z-index: 3;
   display: flex;
   justify-content: flex-end;
   width: auto;
@@ -654,21 +692,11 @@ button:focus-visible {
   height: 100vh;
   overflow: hidden;
   background: #fff;
-  align-items: center;
-}
-
-.sheet-wrapper:fullscreen .checklist-status-bar {
-  position: fixed;
-  bottom: 0.75rem;
-  right: 3.5rem;
 }
 
 .checklist-fullscreen-button {
-  position: absolute;
-  right: 0.75rem;
-  bottom: 0.75rem;
-  z-index: 4;
   display: inline-flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   width: 1cm;
@@ -685,10 +713,6 @@ button:focus-visible {
 .checklist-fullscreen-button:hover,
 .checklist-fullscreen-button:focus-visible {
   background: #eef3f8;
-}
-
-.sheet-wrapper:fullscreen .checklist-fullscreen-button {
-  position: fixed;
 }
 
 .dq-page {
@@ -2114,6 +2138,165 @@ thead th {
   .workspace {
     padding: 0.35rem;
   }
+}
+
+.sleep-log-page {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  padding: 0.75rem 0 2rem;
+}
+
+.sleep-log-shell {
+  width: min(920px, calc(100vw - 2rem));
+  border: 1px solid #cfd5d8;
+  background: #fff;
+  padding: 1rem;
+}
+
+.sleep-log-heading {
+  text-align: center;
+}
+
+.sleep-log-heading h1 {
+  margin: 0;
+  color: #111;
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.sleep-log-heading p {
+  margin: 0.25rem 0 0.9rem;
+  color: #707070;
+  font-size: 0.86rem;
+}
+
+.sleep-log-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.sleep-log-table {
+  width: 100%;
+  min-width: 660px;
+  table-layout: fixed;
+  border: 1px solid #161616;
+  color: #111;
+}
+
+.sleep-date-column {
+  width: 24%;
+}
+
+.sleep-time-column {
+  width: 22%;
+}
+
+.sleep-duration-column {
+  width: 20%;
+}
+
+.sleep-actions-column {
+  width: 12%;
+}
+
+.sleep-log-table th,
+.sleep-log-table td {
+  height: 3.15rem;
+  border: 1px solid #b9bfc2;
+  padding: 0.45rem 0.55rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.sleep-log-table thead th {
+  height: 2.5rem;
+  border-color: #161616;
+  background: #f4f4f1;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sleep-log-table tbody th {
+  font-weight: 400;
+}
+
+.sleep-editor-row {
+  background: #fbfbf7;
+}
+
+.sleep-editor-row td {
+  border-bottom-color: #161616;
+}
+
+.sleep-log-table input[type='date'],
+.sleep-log-table input[type='time'] {
+  width: 100%;
+  min-width: 0;
+  height: 2.15rem;
+  border: 1px solid #777;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  padding: 0.25rem 0.4rem;
+  text-align: center;
+}
+
+.sleep-log-table input:focus {
+  outline: 2px solid rgba(36, 91, 103, 0.24);
+  outline-offset: 1px;
+}
+
+.sleep-duration-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.2rem;
+  min-height: 2rem;
+  border: 1px solid #7e8588;
+  background: #fff;
+  padding: 0.2rem 0.45rem;
+  color: #111;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.sleep-row-actions {
+  white-space: nowrap;
+}
+
+.sleep-edit-button,
+.sleep-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #555;
+  padding: 0;
+}
+
+.sleep-edit-button:hover,
+.sleep-edit-button:focus-visible {
+  background: #eef3f8;
+  color: #111;
+}
+
+.sleep-delete-button:hover,
+.sleep-delete-button:focus-visible {
+  background: #fbefef;
+  color: #9b3f35;
+}
+
+.sleep-log-empty {
+  margin: 0.8rem 0 0;
+  color: #707070;
+  font-size: 0.86rem;
+  text-align: center;
 }
 
 .history-page {

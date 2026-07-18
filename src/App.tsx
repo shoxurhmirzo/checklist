@@ -27,6 +27,7 @@ import {
   normalizeDailyHistory,
   normalizeLastRolloverDate,
   normalizeSheets,
+  normalizeSleepLogRecords,
   saveAppState,
 } from './storage';
 import type {
@@ -38,6 +39,7 @@ import type {
   DivideAndConquerBucket,
   DivideAndConquerTask,
   SectionId,
+  SleepLogRecord,
 } from './types';
 
 const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
@@ -53,7 +55,7 @@ const TaskSorterMenuIcon = () => (
 );
 
 
-type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history';
+type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'sleepLog';
 type PersistenceFeedback = 'idle' | 'loading' | 'saving' | 'saved';
 type DivideAndConquerQuadrantBucket = Exclude<DivideAndConquerBucket, 'unassigned' | 'completed'>;
 type DivideAndConquerDropPlacement = 'before' | 'after';
@@ -211,6 +213,52 @@ const formatHistoryDate = (date: string) =>
 const formatHistoryWeekday = (date: string) =>
   new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`));
 
+const formatSleepLogDate = (date: string) =>
+  new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${date}T00:00:00`));
+
+const formatSleepLogTime = (time: string) => {
+  if (!time) {
+    return '—';
+  }
+
+  const [hours, minutes] = time.split(':').map(Number);
+  const period = hours >= 12 ? 'PM' : 'AM';
+  const displayHours = hours % 12 || 12;
+
+  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
+};
+
+const calculateSleepDurationMinutes = (bedtime: string, wakeTime: string) => {
+  if (!bedtime || !wakeTime) {
+    return null;
+  }
+
+  const [bedHours, bedMinutes] = bedtime.split(':').map(Number);
+  const [wakeHours, wakeMinutes] = wakeTime.split(':').map(Number);
+  const bedtimeMinutes = bedHours * 60 + bedMinutes;
+  const wakeMinutesFromMidnight = wakeHours * 60 + wakeMinutes;
+  const duration = wakeMinutesFromMidnight - bedtimeMinutes;
+
+  return duration > 0 ? duration : duration + 24 * 60;
+};
+
+const formatSleepDuration = (bedtime: string, wakeTime: string) => {
+  const durationMinutes = calculateSleepDurationMinutes(bedtime, wakeTime);
+
+  if (durationMinutes === null) {
+    return '—';
+  }
+
+  const hours = Math.floor(durationMinutes / 60);
+  const minutes = durationMinutes % 60;
+
+  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+};
+
 interface DailyRolloverSlice {
   divideAndConquerItems: DivideAndConquerTask[];
   currentFocusTaskId: string | null;
@@ -294,6 +342,8 @@ const App = () => {
   );
   const [currentFocusTaskId, setCurrentFocusTaskId] = useState<string | null>(null);
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
+  const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
+  const [sleepEditorDate, setSleepEditorDate] = useState(() => getLocalDateString());
   const [lastRolloverDate, setLastRolloverDate] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
@@ -321,6 +371,7 @@ const App = () => {
   const renameCancelledRef = useRef(false);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const sheetWrapperRef = useRef<HTMLElement | null>(null);
+  const checklistDockRef = useRef<HTMLDivElement | null>(null);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const divideAndConquerEditorRef = useRef<HTMLDivElement | null>(null);
   const completedZoneRef = useRef<HTMLElement | null>(null);
@@ -585,6 +636,7 @@ const App = () => {
         setDivideAndConquerItems(rolled.slice.divideAndConquerItems);
         setCurrentFocusTaskId(rolled.slice.currentFocusTaskId);
         setDailyHistory(rolled.slice.dailyHistory);
+        setSleepLogRecords(storedState.sleepLogRecords);
         setLastRolloverDate(rolled.slice.lastRolloverDate);
         if (rolled.completedTexts.length > 0) {
           commitDivideAndConquerDraftRows(
@@ -629,6 +681,7 @@ const App = () => {
       divideAndConquerItems,
       currentFocusTaskId,
       dailyHistory,
+      sleepLogRecords,
       lastRolloverDate,
     };
     latestAppStateRef.current = state;
@@ -664,6 +717,7 @@ const App = () => {
     lastRolloverDate,
     persistenceBlocked,
     sheets,
+    sleepLogRecords,
   ]);
 
   useEffect(
@@ -756,9 +810,10 @@ const App = () => {
   useEffect(() => {
     const workspace = workspaceRef.current;
     const wrapper = sheetWrapperRef.current;
+    const dock = checklistDockRef.current;
     const sheet = sheetRef.current;
 
-    if (!workspace || !wrapper || !sheet) {
+    if (!workspace || !wrapper || !dock || !sheet) {
       return;
     }
 
@@ -767,11 +822,10 @@ const App = () => {
       const naturalWidth = sheet.scrollWidth;
       const naturalHeight = sheet.scrollHeight;
       const wrapperTop = wrapper.getBoundingClientRect().top;
-      const workspaceTop = workspace.getBoundingClientRect().top;
       const isFullscreen = document.fullscreenElement === wrapper;
       const availableHeight = isFullscreen
-        ? wrapper.clientHeight - 12
-        : window.innerHeight - (wrapperTop - workspaceTop) - 12;
+        ? wrapper.clientHeight - dock.offsetHeight
+        : window.innerHeight - wrapperTop - dock.offsetHeight - 8;
 
       if (availableWidth === 0 || naturalWidth === 0 || naturalHeight === 0 || availableHeight <= 0) {
         return;
@@ -796,6 +850,7 @@ const App = () => {
 
     observer.observe(workspace);
     observer.observe(wrapper);
+    observer.observe(dock);
     observer.observe(sheet);
     window.addEventListener('resize', updateScale);
 
@@ -855,6 +910,12 @@ const App = () => {
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
   const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
+  const sleepEditorRecord = sleepLogRecords.find((record) => record.date === sleepEditorDate) ?? {
+    date: sleepEditorDate,
+    bedtime: '',
+    wakeTime: '',
+  };
+  const sleepLogHistory = sleepLogRecords.filter((record) => record.date !== sleepEditorDate);
 
   const markHistoryTaskComplete = (date: string, taskId: string) => {
     setDailyHistory((records) =>
@@ -1294,6 +1355,7 @@ const App = () => {
       divideAndConquerItems,
       currentFocusTaskId,
       dailyHistory,
+      sleepLogRecords,
       lastRolloverDate,
     });
     const timeStamp = new Date().toISOString().slice(0, 10);
@@ -1337,6 +1399,7 @@ const App = () => {
       setDivideAndConquerItems(nextDivideAndConquerItems);
       setCurrentFocusTaskId(normalizeCurrentFocusTaskId(parsed.currentFocusTaskId, nextDivideAndConquerItems));
       setDailyHistory(normalizeDailyHistory(parsed.dailyHistory));
+      setSleepLogRecords(normalizeSleepLogRecords(parsed.sleepLogRecords));
       // Old backups carry no rollover date; stamping today keeps the imported
       // tasks from being swept into history on the next rollover check.
       setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
@@ -1362,6 +1425,39 @@ const App = () => {
       selectedMonth: parsedMonth.month,
       columnLabels: generateColumnLabelsForMonth(parsedMonth.year, parsedMonth.month),
     }));
+  };
+
+  const updateSleepLogRecord = (date: string, updates: Partial<Pick<SleepLogRecord, 'bedtime' | 'wakeTime'>>) => {
+    setSleepLogRecords((currentRecords) => {
+      const currentRecord = currentRecords.find((record) => record.date === date) ?? {
+        date,
+        bedtime: '',
+        wakeTime: '',
+      };
+      const nextRecord = { ...currentRecord, ...updates };
+      const recordsWithoutDate = currentRecords.filter((record) => record.date !== date);
+
+      return [nextRecord, ...recordsWithoutDate].sort((a, b) => b.date.localeCompare(a.date));
+    });
+  };
+
+  const editSleepLogRecord = (date: string) => {
+    setSleepEditorDate(date);
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('.sleep-editor-bedtime')?.focus();
+    });
+  };
+
+  const deleteSleepLogRecord = (date: string) => {
+    setConfirmState({
+      title: 'Delete sleep record',
+      message: `Delete the sleep record for ${formatSleepLogDate(date)}?`,
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        setSleepLogRecords((currentRecords) => currentRecords.filter((record) => record.date !== date));
+        setStatus('Sleep record deleted');
+      },
+    });
   };
 
   const closeConfirm = () => {
@@ -1877,7 +1973,15 @@ const App = () => {
     <div className="app-shell">
       <main ref={workspaceRef} className="workspace">
         <section className="top-controls">
-          <div className={`controls-row ${activeView === 'checklist' ? 'checklist-controls-row' : ''}`}>
+          <div
+            className={`controls-row ${
+              activeView === 'checklist'
+                ? 'checklist-controls-row'
+                : activeView === 'sleepLog'
+                  ? 'sleep-log-controls-row'
+                  : ''
+            }`}
+          >
             {activeView === 'checklist' ? (
               <>
                 <div ref={planMenuRef} className={`plan-menu-root ${isPlanMenuOpen ? 'menu-open' : ''}`}>
@@ -1918,6 +2022,18 @@ const App = () => {
                     </button>
                   </div>
                 </div>
+                <button
+                  type="button"
+                  className="nav-link-button sleep-log-nav-button"
+                  onClick={() => {
+                    setIsPlanMenuOpen(false);
+                    setIsSheetMenuOpen(false);
+                    setSleepEditorDate(getLocalDateString());
+                    setActiveView('sleepLog');
+                  }}
+                >
+                  Sleep log
+                </button>
                 <div ref={sheetMenuRef} className={`sheet-menu-root ${isSheetMenuOpen ? 'menu-open' : ''}`}>
                   <button
                     type="button"
@@ -2108,6 +2224,36 @@ const App = () => {
                     <path d="M12 7v5l3 2" />
                   </svg>
                 </button>
+              </>
+            ) : activeView === 'sleepLog' ? (
+              <>
+                <button
+                  type="button"
+                  className="back-icon-button"
+                  onClick={() => setActiveView('checklist')}
+                  aria-label="Back to checklist"
+                  title="Back to checklist"
+                >
+                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M19 12H5M11 18l-6-6 6-6" />
+                  </svg>
+                </button>
+                {persistenceFeedback !== 'idle' ? (
+                  <span
+                    className={`save-feedback-indicator save-feedback-${persistenceFeedback}`}
+                    role="status"
+                    aria-live="polite"
+                    aria-label={persistenceFeedback === 'saved' ? 'Changes saved' : 'Saving changes'}
+                  >
+                    {persistenceFeedback === 'saved' ? (
+                      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="m5 12 4.2 4.2L19 6.5" />
+                      </svg>
+                    ) : (
+                      <span className="loading-spinner" aria-hidden="true" />
+                    )}
+                  </span>
+                ) : null}
               </>
             ) : (
               <>
@@ -2400,6 +2546,124 @@ const App = () => {
               </div>
             </div>
           </section>
+        ) : activeView === 'sleepLog' ? (
+          <section className="sleep-log-page" aria-labelledby="sleep-log-title">
+            <div className="sleep-log-shell">
+              <header className="sleep-log-heading">
+                <h1 id="sleep-log-title">Sleep log</h1>
+                <p>Bedtime and wake-up time are saved automatically.</p>
+              </header>
+              <div className="sleep-log-table-wrap">
+                <table className="sleep-log-table">
+                  <colgroup>
+                    <col className="sleep-date-column" />
+                    <col className="sleep-time-column" />
+                    <col className="sleep-duration-column" />
+                    <col className="sleep-time-column" />
+                    <col className="sleep-actions-column" />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th scope="col">Date</th>
+                      <th scope="col">Bedtime</th>
+                      <th scope="col">Slept</th>
+                      <th scope="col">Wake-up</th>
+                      <th scope="col"><span className="visually-hidden">Actions</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="sleep-editor-row">
+                      <td>
+                        <input
+                          type="date"
+                          value={sleepEditorDate}
+                          max={getLocalDateString()}
+                          onChange={(event) => {
+                            if (event.target.value) {
+                              setSleepEditorDate(event.target.value);
+                            }
+                          }}
+                          aria-label="Sleep record date"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          className="sleep-editor-bedtime"
+                          type="time"
+                          value={sleepEditorRecord.bedtime}
+                          onChange={(event) => updateSleepLogRecord(sleepEditorDate, { bedtime: event.target.value })}
+                          aria-label={`Bedtime for ${formatSleepLogDate(sleepEditorDate)}`}
+                        />
+                      </td>
+                      <td>
+                        <output
+                          className="sleep-duration-value"
+                          aria-label={`Sleep duration ${formatSleepDuration(
+                            sleepEditorRecord.bedtime,
+                            sleepEditorRecord.wakeTime,
+                          )}`}
+                        >
+                          {formatSleepDuration(sleepEditorRecord.bedtime, sleepEditorRecord.wakeTime)}
+                        </output>
+                      </td>
+                      <td>
+                        <input
+                          type="time"
+                          value={sleepEditorRecord.wakeTime}
+                          onChange={(event) => updateSleepLogRecord(sleepEditorDate, { wakeTime: event.target.value })}
+                          aria-label={`Wake-up time for ${formatSleepLogDate(sleepEditorDate)}`}
+                        />
+                      </td>
+                      <td className="sleep-row-actions">
+                        {sleepLogRecords.some((record) => record.date === sleepEditorDate) ? (
+                          <button
+                            type="button"
+                            className="sleep-delete-button"
+                            onClick={() => deleteSleepLogRecord(sleepEditorDate)}
+                            aria-label={`Delete sleep record for ${formatSleepLogDate(sleepEditorDate)}`}
+                            title="Delete sleep record"
+                          >
+                            <Trash2 size={18} strokeWidth={1.8} aria-hidden="true" />
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                    {sleepLogHistory.map((record) => (
+                      <tr key={record.date}>
+                        <th scope="row">{formatSleepLogDate(record.date)}</th>
+                        <td>{formatSleepLogTime(record.bedtime)}</td>
+                        <td><strong className="sleep-duration-value">{formatSleepDuration(record.bedtime, record.wakeTime)}</strong></td>
+                        <td>{formatSleepLogTime(record.wakeTime)}</td>
+                        <td className="sleep-row-actions">
+                          <button
+                            type="button"
+                            className="sleep-edit-button"
+                            onClick={() => editSleepLogRecord(record.date)}
+                            aria-label={`Edit sleep record for ${formatSleepLogDate(record.date)}`}
+                            title="Edit sleep record"
+                          >
+                            <Pencil size={18} strokeWidth={1.8} aria-hidden="true" />
+                          </button>
+                          <button
+                            type="button"
+                            className="sleep-delete-button"
+                            onClick={() => deleteSleepLogRecord(record.date)}
+                            aria-label={`Delete sleep record for ${formatSleepLogDate(record.date)}`}
+                            title="Delete sleep record"
+                          >
+                            <Trash2 size={18} strokeWidth={1.8} aria-hidden="true" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {sleepLogRecords.length === 0 ? (
+                <p className="sleep-log-empty">Enter your bedtime and wake-up time to start the log.</p>
+              ) : null}
+            </div>
+          </section>
         ) : activeView === 'history' ? (
           <section className="history-page" aria-labelledby="history-title">
             <div className="history-shell">
@@ -2449,18 +2713,21 @@ const App = () => {
           </section>
         ) : (
         <section ref={sheetWrapperRef} className="sheet-wrapper">
-          <div
-            className="sheet-fit-frame"
-            style={{
-              width: frameSize.width > 0 ? `${frameSize.width}px` : undefined,
-              height: frameSize.height > 0 ? `${frameSize.height}px` : undefined,
-            }}
-          >
             <div
-              ref={sheetRef}
-              className="checklist-sheet"
-              style={{ transform: `scale(${sheetScale})` }}
+              className="checklist-sheet-viewport"
             >
+              <div
+                className="sheet-fit-frame"
+                style={{
+                  width: frameSize.width > 0 ? `${frameSize.width}px` : undefined,
+                  height: frameSize.height > 0 ? `${frameSize.height}px` : undefined,
+                }}
+              >
+                <div
+                  ref={sheetRef}
+                  className="checklist-sheet"
+                  style={{ transform: `scale(${sheetScale})` }}
+                >
             <table className="checklist-table">
               <colgroup>
                 <col className="checklist-section-column" />
@@ -2586,30 +2853,33 @@ const App = () => {
                 ))}
               </tbody>
             </table>
+                </div>
+              </div>
             </div>
-          </div>
-          <div
-            className="checklist-status-bar"
-            aria-label={`Checklist totals: plus ${markTotals.plus}, minus ${markTotals.minus}`}
-          >
-            <span className="mark-totals">
-              <span className="mark-total plus-total" title="Completed tasks marked as plus">
-                + {markTotals.plus}
+          <div ref={checklistDockRef} className="checklist-bottom-dock">
+            <div
+              className="checklist-status-bar"
+              aria-label={`Checklist totals: plus ${markTotals.plus}, minus ${markTotals.minus}`}
+            >
+              <span className="mark-totals">
+                <span className="mark-total plus-total" title="Completed tasks marked as plus">
+                  + {markTotals.plus}
+                </span>
+                <span className="mark-total minus-total" title="Tasks marked as minus">
+                  - {markTotals.minus}
+                </span>
               </span>
-              <span className="mark-total minus-total" title="Tasks marked as minus">
-                - {markTotals.minus}
-              </span>
-            </span>
+            </div>
+            <button
+              type="button"
+              className="checklist-fullscreen-button"
+              onClick={() => void toggleChecklistFullscreen()}
+              aria-label={isChecklistFullscreen ? 'Exit fullscreen checklist' : 'Open fullscreen checklist'}
+              title={isChecklistFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen checklist (F)'}
+            >
+              F
+            </button>
           </div>
-          <button
-            type="button"
-            className="checklist-fullscreen-button"
-            onClick={() => void toggleChecklistFullscreen()}
-            aria-label={isChecklistFullscreen ? 'Exit fullscreen checklist' : 'Open fullscreen checklist'}
-            title={isChecklistFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen checklist (F)'}
-          >
-            F
-          </button>
         </section>
         )}
       </main>
