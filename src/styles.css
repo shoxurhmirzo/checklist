@@ -781,6 +781,16 @@ button:focus-visible {
   min-height: 2.6rem;
   border: 0;
   background-color: transparent;
+  color: #24323a;
+  font: inherit;
+  line-height: 1.6rem;
+  padding: 0.5rem 0.75rem 0.45rem 0.35rem;
+  overflow: hidden;
+  resize: none;
+}
+
+/* Notebook ruling only under written lines — an empty row stays clean. */
+.dq-task-row.has-text .dq-task-input {
   background-image: repeating-linear-gradient(
     to bottom,
     transparent 0,
@@ -791,12 +801,6 @@ button:focus-visible {
   background-position: 0 0.5rem;
   background-size: 100% 1.6rem;
   background-repeat: repeat-y;
-  color: #24323a;
-  font: inherit;
-  line-height: 1.6rem;
-  padding: 0.5rem 0.75rem 0.45rem 0.35rem;
-  overflow: hidden;
-  resize: none;
 }
 
 .dq-task-input:focus {
@@ -2144,159 +2148,541 @@ thead th {
   display: flex;
   min-width: 0;
   justify-content: center;
-  padding: 0.75rem 0 2rem;
+  padding: 1.25rem 0 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .sleep-log-shell {
-  width: min(920px, calc(100vw - 2rem));
-  border: 1px solid #cfd5d8;
+  width: min(700px, calc(100vw - 2rem));
   background: #fff;
-  padding: 1rem;
+  padding: 0.5rem;
 }
 
 .sleep-log-heading {
-  text-align: center;
+  margin: 0 0 0.8rem;
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid #d8dde2;
+}
+
+.sleep-log-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
 }
 
 .sleep-log-heading h1 {
   margin: 0;
   color: #111;
-  font-size: 1.8rem;
+  font-size: 1.6rem;
   font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-.sleep-log-heading p {
-  margin: 0.25rem 0 0.9rem;
-  color: #707070;
-  font-size: 0.86rem;
-}
-
-.sleep-log-table-wrap {
-  width: 100%;
-  overflow-x: auto;
-}
-
-.sleep-log-table {
-  width: 100%;
-  min-width: 660px;
-  table-layout: fixed;
-  border: 1px solid #161616;
-  color: #111;
-}
-
-.sleep-date-column {
-  width: 24%;
-}
-
-.sleep-time-column {
-  width: 22%;
-}
-
-.sleep-duration-column {
-  width: 20%;
-}
-
-.sleep-actions-column {
-  width: 12%;
-}
-
-.sleep-log-table th,
-.sleep-log-table td {
-  height: 3.15rem;
-  border: 1px solid #b9bfc2;
-  padding: 0.45rem 0.55rem;
-  text-align: center;
-  vertical-align: middle;
-}
-
-.sleep-log-table thead th {
-  height: 2.5rem;
-  border-color: #161616;
-  background: #f4f4f1;
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.sleep-log-table tbody th {
+.sleep-log-heading h1 span {
+  color: #758187;
+  font-size: 1rem;
   font-weight: 400;
+  letter-spacing: 0;
 }
 
-.sleep-editor-row {
-  background: #fbfbf7;
+.sleep-entry-card {
+  padding: 0.35rem 0 0.6rem;
 }
 
-.sleep-editor-row td {
-  border-bottom-color: #161616;
-}
-
-.sleep-log-table input[type='date'],
-.sleep-log-table input[type='time'] {
-  width: 100%;
-  min-width: 0;
-  height: 2.15rem;
-  border: 1px solid #777;
-  border-radius: 0;
-  background: #fff;
-  color: #111;
-  padding: 0.25rem 0.4rem;
-  text-align: center;
-}
-
-.sleep-log-table input:focus {
-  outline: 2px solid rgba(36, 91, 103, 0.24);
-  outline-offset: 1px;
-}
-
-.sleep-duration-value {
+.sleep-log-actions {
   display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 5.2rem;
-  min-height: 2rem;
-  border: 1px solid #7e8588;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.2rem 0.7rem;
+}
+
+.sleep-text-button {
+  border: 0;
+  background: transparent;
+  color: #245b67;
+  padding: 0.15rem 0;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.sleep-text-button:hover,
+.sleep-text-button:focus-visible {
+  color: #123b44;
+  background: transparent;
+}
+
+.sleep-remove-button,
+.sleep-remove-button:hover,
+.sleep-remove-button:focus-visible {
+  color: #9b3f35;
+}
+
+.sleep-date-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.sleep-date-pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  width: 16.5rem;
   background: #fff;
-  padding: 0.2rem 0.45rem;
+  border: 1px solid #cfd6da;
+  border-radius: 0;
+  box-shadow: 0 1px 2px rgba(17, 38, 46, 0.08), 0 6px 14px rgba(17, 38, 46, 0.07);
+  padding: 0.7rem 0.8rem 0.8rem;
+}
+
+.sleep-date-pop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.sleep-date-pop-title {
   color: #111;
-  font-size: 0.95rem;
+  font-size: 0.92rem;
   font-weight: 600;
-  line-height: 1;
 }
 
-.sleep-row-actions {
-  white-space: nowrap;
+.sleep-date-pop-nav {
+  display: inline-flex;
+  gap: 0.15rem;
 }
 
-.sleep-edit-button,
-.sleep-delete-button {
+.sleep-date-pop-nav button:disabled {
+  color: #c3cad0;
+  background: transparent;
+  cursor: default;
+}
+
+.sleep-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  justify-items: center;
+  gap: 0.1rem 0;
+}
+
+.sleep-date-weekday {
+  color: #758187;
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0.2rem 0;
+}
+
+.sleep-date-day {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2rem;
   height: 2rem;
   border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #111;
+  padding: 0;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sleep-date-day:hover:not(:disabled),
+.sleep-date-day:focus-visible {
+  background: #eef3f8;
+}
+
+.sleep-date-day.is-today {
+  color: #245b67;
+  font-weight: 600;
+}
+
+.sleep-date-day.is-selected,
+.sleep-date-day.is-selected:hover {
+  background: #245b67;
+  color: #fff;
+  font-weight: 600;
+}
+
+.sleep-date-day:disabled {
+  color: #c3cad0;
+  cursor: default;
+}
+
+.sleep-editor-fields {
+  display: grid;
+  grid-template-columns: auto minmax(112px, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+  margin-top: 0.65rem;
+}
+
+.sleep-time-field {
+  display: grid;
+  gap: 0.35rem;
+  color: #4b565c;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.sleep-time-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.sleep-time-trigger {
+  display: flex;
+  align-items: center;
+  width: 10.5rem;
+  height: 2.5rem;
+  border: 1px solid #aeb7bd;
+  border-radius: 0;
+  background: #fff;
+  color: #111;
+  padding: 0.3rem 2.6rem 0.3rem 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 400;
+  text-align: left;
+}
+
+.sleep-time-trigger:focus-visible,
+.sleep-time-trigger[aria-expanded='true'] {
+  outline: 2px solid rgba(36, 91, 103, 0.28);
+  outline-offset: 1px;
+}
+
+.sleep-time-trigger-value {
+  font-variant-numeric: tabular-nums;
+}
+
+.sleep-time-trigger-placeholder {
+  color: #758187;
+  font-size: 0.95rem;
+}
+
+.sleep-time-trigger-icon {
+  position: absolute;
+  top: 50%;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  color: #4b565c;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.sleep-time-picker-pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  min-width: 10.5rem;
+  background: #fff;
+  border: 1px solid #cfd6da;
+  border-radius: 0;
+  box-shadow: 0 1px 2px rgba(17, 38, 46, 0.08), 0 6px 14px rgba(17, 38, 46, 0.07);
+  padding: 0.8rem 0.9rem 0.9rem;
+}
+
+.sleep-time-picker-grid {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: 0.35rem;
+}
+
+.sleep-time-picker-col {
+  display: grid;
+  justify-items: center;
+  gap: 0.1rem;
+}
+
+.sleep-time-step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.2rem;
+  height: 1.6rem;
+  border: 0;
   border-radius: 0;
   background: transparent;
-  color: #555;
+  color: #5c676d;
   padding: 0;
+  touch-action: none;
 }
 
-.sleep-edit-button:hover,
-.sleep-edit-button:focus-visible {
+.sleep-time-step:hover,
+.sleep-time-step:focus-visible {
   background: #eef3f8;
+  color: #245b67;
+}
+
+.sleep-time-picker-value {
+  width: 2.4ch;
+  min-width: 2ch;
+  border: 0;
+  background: transparent;
+  padding: 0;
   color: #111;
-}
-
-.sleep-delete-button:hover,
-.sleep-delete-button:focus-visible {
-  background: #fbefef;
-  color: #9b3f35;
-}
-
-.sleep-log-empty {
-  margin: 0.8rem 0 0;
-  color: #707070;
-  font-size: 0.86rem;
+  font-size: 1.55rem;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
   text-align: center;
+}
+
+.sleep-time-picker-value:focus {
+  outline: 0;
+  background: #eef3f8;
+}
+
+.sleep-time-picker-value::selection {
+  background: rgba(36, 91, 103, 0.22);
+}
+
+.sleep-time-picker-colon {
+  color: #111;
+  font-size: 1.35rem;
+  font-weight: 500;
+}
+
+.sleep-time-picker-ampm {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 0.7rem;
+  border: 1px solid #aeb7bd;
+  border-radius: 0;
+  overflow: hidden;
+}
+
+.sleep-time-picker-ampm button {
+  border: 0;
+  border-radius: 0;
+  background: #fff;
+  color: #245b67;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 0.32rem 0;
+}
+
+.sleep-time-picker-ampm button + button {
+  border-left: 1px solid #aeb7bd;
+}
+
+.sleep-time-picker-ampm button.is-active {
+  background: #dde8ec;
+  color: #123b44;
+}
+
+.sleep-time-clear {
+  display: block;
+  width: 100%;
+  margin-top: 0.55rem;
+  border: 0;
+  background: transparent;
+  color: #245b67;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.2rem 0;
+}
+
+.sleep-time-clear:hover,
+.sleep-time-clear:focus-visible {
+  color: #123b44;
+  background: transparent;
+}
+
+.sleep-duration-summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+  padding: 0;
+  text-align: center;
+}
+
+.sleep-duration-summary strong {
+  color: #111;
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
+.sleep-history {
+  margin-top: 1.25rem;
+  border-top: 1px solid #d8dde2;
+}
+
+.sleep-history-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.9rem 0 0.6rem;
+}
+
+.sleep-history h2 {
+  margin: 0;
+  color: #1e4853;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.sleep-week-list {
+  display: grid;
+  gap: 1.25rem;
+  padding: 0 0 0.75rem;
+}
+
+.sleep-week h3 {
+  margin: 0 0 0.45rem;
+  color: #4b565c;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.sleep-history-rows {
+  border-top: 1px solid #e0e4e6;
+}
+
+.sleep-history-row {
+  display: grid;
+  grid-template-columns: minmax(96px, auto) 1fr auto auto;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 2.9rem;
+  border: 0;
+  border-bottom: 1px solid #e0e4e6;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.35rem 0.15rem;
+  text-align: left;
+}
+
+.sleep-history-row:hover,
+.sleep-history-row:focus-visible {
+  background: #f5f7f8;
+}
+
+.sleep-history-date {
+  color: #111;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.sleep-history-range {
+  color: #4b565c;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.sleep-history-duration {
+  color: #111;
+  font-size: 0.9rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.sleep-history-chevron {
+  color: #aeb7bd;
+  transition: transform 140ms ease;
+}
+
+.sleep-history-range .is-missing {
+  color: #98a3a9;
+}
+
+.sleep-history-item.is-expanded .sleep-history-row {
+  background: #f5f7f8;
+  border-bottom-color: transparent;
+}
+
+.sleep-history-item.is-expanded .sleep-history-chevron {
+  transform: rotate(90deg);
+}
+
+.sleep-history-editor {
+  padding: 0.15rem 0.15rem 0.85rem;
+  border-bottom: 1px solid #e0e4e6;
+}
+
+.sleep-history-editor .sleep-editor-fields {
+  margin-top: 0.3rem;
+}
+
+.sleep-history-editor .sleep-remove-button {
+  margin-top: 0.55rem;
+}
+
+@media (max-width: 620px) {
+  .sleep-log-page {
+    padding-top: 0.75rem;
+  }
+
+  .sleep-log-shell {
+    width: min(100%, calc(100vw - 1rem));
+    padding: 0;
+  }
+
+  .sleep-entry-card {
+    padding: 0.35rem 0 0.6rem;
+  }
+
+  .sleep-log-heading-row {
+    align-items: flex-start;
+  }
+
+  .sleep-log-actions {
+    display: grid;
+    justify-items: end;
+  }
+
+  .sleep-editor-fields {
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+  }
+
+  .sleep-duration-summary {
+    min-height: 0;
+    padding: 0;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .sleep-history-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 0.15rem 0.6rem;
+    padding: 0.55rem 0.15rem;
+  }
+
+  .sleep-history-date {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .sleep-history-range {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .sleep-history-duration {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .sleep-history-chevron {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
 }
 
 .history-page {

@@ -2,13 +2,31 @@ import {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
   KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 import { flushSync } from 'react-dom';
-import { Brain, BrushCleaning, Check, Download, Folder, Minus, Pencil, Plus, Trash2, Upload } from 'lucide-react';
+import {
+  Brain,
+  BrushCleaning,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Download,
+  Folder,
+  Minus,
+  Pencil,
+  Plus,
+  Sunrise,
+  Sunset,
+  Trash2,
+  Upload,
+} from 'lucide-react';
 import {
   COLUMN_COUNT,
   createRow,
@@ -99,6 +117,12 @@ interface HistoryTaskEdit {
   date: string;
   kind: 'completed' | 'undone';
   taskId: string;
+}
+
+interface SleepLogWeek {
+  startDate: string;
+  endDate: string;
+  records: SleepLogRecord[];
 }
 
 const downloadTextFile = (content: string, fileName: string) => {
@@ -196,9 +220,6 @@ const reconcileDivideAndConquerItemsWithDraftRows = (
   });
 };
 
-const formatDivideAndConquerTasksText = (tasks: DivideAndConquerTask[]) =>
-  tasks.map((task, index) => buildDivideAndConquerLine(index + 1, task.text)).join('\n');
-
 const getLocalDateString = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
@@ -220,6 +241,9 @@ const formatSleepLogDate = (date: string) =>
     day: 'numeric',
   }).format(new Date(`${date}T00:00:00`));
 
+const formatSleepLogDayLabel = (date: string) =>
+  new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric' }).format(new Date(`${date}T00:00:00`));
+
 const formatSleepLogTime = (time: string) => {
   if (!time) {
     return '—';
@@ -232,6 +256,73 @@ const formatSleepLogTime = (time: string) => {
   return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
 };
 
+// Returns the locale's first day of week in Intl terms: 1 = Monday … 7 = Sunday.
+const getLocaleFirstWeekday = () => {
+  try {
+    const locale = new Intl.Locale(navigator.language) as Intl.Locale & {
+      getWeekInfo?: () => { firstDay: number };
+      weekInfo?: { firstDay: number };
+    };
+
+    return locale.getWeekInfo?.().firstDay ?? locale.weekInfo?.firstDay ?? 1;
+  } catch {
+    return 1;
+  }
+};
+
+const getLocaleWeekStartDate = (dateString: string) => {
+  const date = new Date(`${dateString}T00:00:00`);
+  const firstDayOfWeek = getLocaleFirstWeekday();
+  const dayOfWeek = date.getDay() || 7;
+  const daysSinceWeekStart = (dayOfWeek - firstDayOfWeek + 7) % 7;
+  date.setDate(date.getDate() - daysSinceWeekStart);
+
+  return getLocalDateString(date);
+};
+
+const formatSleepLogWeekRange = (startDate: string, endDate: string) => {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  const includeYear = start.getFullYear() !== end.getFullYear() || start.getFullYear() !== new Date().getFullYear();
+  const formatOptions: Intl.DateTimeFormatOptions = {
+    month: 'short',
+    day: 'numeric',
+    ...(includeYear ? { year: 'numeric' } : {}),
+  };
+  const formatter = new Intl.DateTimeFormat(undefined, formatOptions);
+
+  return `${formatter.format(start)} – ${formatter.format(end)}`;
+};
+
+const groupSleepLogRecordsByWeek = (records: SleepLogRecord[]): SleepLogWeek[] => {
+  const weeksByStartDate = new Map<string, SleepLogWeek>();
+
+  records.forEach((record) => {
+    const startDate = getLocaleWeekStartDate(record.date);
+    const week = weeksByStartDate.get(startDate);
+
+    if (week) {
+      week.records.push(record);
+      return;
+    }
+
+    const end = new Date(`${startDate}T00:00:00`);
+    end.setDate(end.getDate() + 6);
+    weeksByStartDate.set(startDate, {
+      startDate,
+      endDate: getLocalDateString(end),
+      records: [record],
+    });
+  });
+
+  return Array.from(weeksByStartDate.values())
+    .sort((first, second) => second.startDate.localeCompare(first.startDate))
+    .map((week) => ({
+      ...week,
+      records: [...week.records].sort((first, second) => second.date.localeCompare(first.date)),
+    }));
+};
+
 const calculateSleepDurationMinutes = (bedtime: string, wakeTime: string) => {
   if (!bedtime || !wakeTime) {
     return null;
@@ -242,6 +333,11 @@ const calculateSleepDurationMinutes = (bedtime: string, wakeTime: string) => {
   const bedtimeMinutes = bedHours * 60 + bedMinutes;
   const wakeMinutesFromMidnight = wakeHours * 60 + wakeMinutes;
   const duration = wakeMinutesFromMidnight - bedtimeMinutes;
+
+  // Equal times read as "no sleep recorded", not a 24-hour night.
+  if (duration === 0) {
+    return null;
+  }
 
   return duration > 0 ? duration : duration + 24 * 60;
 };
@@ -257,6 +353,440 @@ const formatSleepDuration = (bedtime: string, wakeTime: string) => {
   const minutes = durationMinutes % 60;
 
   return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+};
+
+const pad2 = (value: number) => String(value).padStart(2, '0');
+
+const splitTime12 = (time: string) => {
+  const [hours, minutes] = time.split(':').map(Number);
+
+  return {
+    hour12: hours % 12 || 12,
+    minutes,
+    period: hours >= 12 ? ('PM' as const) : ('AM' as const),
+  };
+};
+
+const joinTime12 = (hour12: number, minutes: number, period: 'AM' | 'PM') =>
+  `${pad2(period === 'PM' ? (hour12 % 12) + 12 : hour12 % 12)}:${pad2(minutes)}`;
+
+const STEP_REPEAT_DELAY_MS = 400;
+const STEP_REPEAT_INTERVAL_MS = 90;
+// An empty field shows a muted 00:00 placeholder; the picker must display and
+// step from that same 00:00, or the first tap would save a time the user never saw.
+const EMPTY_PICKER_TIME = '00:00';
+
+interface SleepTimePickerProps {
+  value: string;
+  ariaLabel: string;
+  triggerClassName?: string;
+  icon: ReactNode;
+  onChange: (value: string) => void;
+}
+
+const SleepTimePicker = ({ value, ariaLabel, triggerClassName, icon, onChange }: SleepTimePickerProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  // Text being typed into the hour/minute boxes; null when not editing by keyboard.
+  const [hourDraft, setHourDraft] = useState<string | null>(null);
+  const [minuteDraft, setMinuteDraft] = useState<string | null>(null);
+  // State lags within an event: auto-advancing focus fires the hour's blur before
+  // React re-renders, so blur must read the draft from a synchronously-updated ref
+  // or it re-commits the pre-typing value over what was just entered.
+  const draftsRef = useRef<{ hour: string | null; minute: string | null }>({ hour: null, minute: null });
+  const hourInputRef = useRef<HTMLInputElement | null>(null);
+  const minuteInputRef = useRef<HTMLInputElement | null>(null);
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+  const valueRef = useRef(value);
+  const repeatTimersRef = useRef<number[]>([]);
+  valueRef.current = value;
+
+  const stopStepRepeat = () => {
+    repeatTimersRef.current.forEach((timer) => {
+      window.clearTimeout(timer);
+      window.clearInterval(timer);
+    });
+    repeatTimersRef.current = [];
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      // Closing the popup unmounts the step buttons, so a held button never
+      // gets its pointerup — kill any running repeat here or it spins forever.
+      stopStepRepeat();
+      draftsRef.current = { hour: null, minute: null };
+      setHourDraft(null);
+      setMinuteDraft(null);
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  useEffect(() => stopStepRepeat, []);
+
+  // Routes every mutation through valueRef so commits landing in the same event
+  // (e.g. hour commit + minute commit) build on each other, not on a stale value.
+  const applyTime = (next: string) => {
+    valueRef.current = next;
+    onChange(next);
+  };
+
+  const stepTime = (unit: 'hour' | 'minute', delta: number) => {
+    const current = splitTime12(valueRef.current || EMPTY_PICKER_TIME);
+
+    if (unit === 'hour') {
+      applyTime(joinTime12(((current.hour12 - 1 + delta + 12) % 12) + 1, current.minutes, current.period));
+    } else {
+      applyTime(joinTime12(current.hour12, (current.minutes + delta + 60) % 60, current.period));
+    }
+  };
+
+  const setPeriod = (period: 'AM' | 'PM') => {
+    const current = splitTime12(valueRef.current || EMPTY_PICKER_TIME);
+    applyTime(joinTime12(current.hour12, current.minutes, period));
+  };
+
+  const commitDraft = (unit: 'hour' | 'minute', draft: string) => {
+    const parsed = Number(draft);
+
+    if (!draft.trim() || Number.isNaN(parsed)) {
+      return;
+    }
+
+    const current = splitTime12(valueRef.current || EMPTY_PICKER_TIME);
+
+    if (unit === 'minute') {
+      applyTime(joinTime12(current.hour12, Math.min(parsed, 59), current.period));
+    } else if (parsed === 0) {
+      applyTime(joinTime12(12, current.minutes, 'AM'));
+    } else if (parsed <= 11) {
+      // Hours 1-11 are morning (AM).
+      applyTime(joinTime12(parsed, current.minutes, 'AM'));
+    } else if (parsed === 12) {
+      // Hour 12 is noon (PM).
+      applyTime(joinTime12(12, current.minutes, 'PM'));
+    } else if (parsed <= 23) {
+      // Hours 13-23 are evening (PM); convert to 12-hour.
+      applyTime(joinTime12(parsed - 12, current.minutes, 'PM'));
+    }
+  };
+
+  const renderValueInput = (unit: 'hour' | 'minute', displayValue: string, autoFocus: boolean) => {
+    const draft = unit === 'hour' ? hourDraft : minuteDraft;
+    const setDraft = (next: string | null) => {
+      draftsRef.current[unit] = next;
+      (unit === 'hour' ? setHourDraft : setMinuteDraft)(next);
+    };
+    const finishDraft = () => {
+      const currentDraft = draftsRef.current[unit];
+
+      if (currentDraft !== null) {
+        commitDraft(unit, currentDraft);
+        setDraft(null);
+      }
+    };
+
+    return (
+      <input
+        ref={unit === 'hour' ? hourInputRef : unit === 'minute' ? minuteInputRef : undefined}
+        className="sleep-time-picker-value"
+        type="text"
+        inputMode="numeric"
+        autoFocus={autoFocus}
+        value={draft ?? displayValue}
+        aria-label={unit === 'hour' ? 'Hour' : 'Minutes'}
+        onFocus={(event) => {
+          // Extract the raw hour/minute from the stored 24-hour time, not the converted displayValue.
+          // This way typing "23" shows "23", not the 12-hour "11".
+          const timeValue = valueRef.current || EMPTY_PICKER_TIME;
+          const [storedHour, storedMinute] = timeValue.split(':');
+          const rawValue = unit === 'hour' ? storedHour : storedMinute;
+          setDraft(rawValue);
+          event.currentTarget.select();
+        }}
+        onChange={(event) => {
+          const next = event.target.value.replace(/\D/g, '').slice(0, 2);
+          setDraft(next);
+
+          // Auto-advance only once two digits are entered. Valid hours can start with
+          // any digit 1-2 (for 10-12 or 20-23), so single digits 1-2 need a second digit.
+          if (unit === 'hour' && next.length === 2) {
+            commitDraft('hour', next);
+            setDraft(null);
+            minuteInputRef.current?.focus();
+          } else if (unit === 'minute') {
+            if (next.length === 2) {
+              commitDraft('minute', next);
+            } else if (next.length === 0) {
+              // Backspace to empty in minutes — jump back to hour.
+              setDraft(null);
+              hourInputRef.current?.focus();
+            }
+          }
+        }}
+        onBlur={finishDraft}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            finishDraft();
+            setIsOpen(false);
+          } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            event.preventDefault();
+            setDraft(null);
+            stepTime(unit, event.key === 'ArrowUp' ? 1 : -1);
+          }
+        }}
+      />
+    );
+  };
+
+  const beginStepRepeat = (unit: 'hour' | 'minute', delta: number) => {
+    stopStepRepeat();
+    stepTime(unit, delta);
+    repeatTimersRef.current.push(
+      window.setTimeout(() => {
+        repeatTimersRef.current.push(window.setInterval(() => stepTime(unit, delta), STEP_REPEAT_INTERVAL_MS));
+      }, STEP_REPEAT_DELAY_MS),
+    );
+  };
+
+  const renderStepButton = (unit: 'hour' | 'minute', delta: number, label: string) => (
+    <button
+      type="button"
+      className="sleep-time-step"
+      aria-label={label}
+      onPointerDown={() => beginStepRepeat(unit, delta)}
+      onPointerUp={stopStepRepeat}
+      onPointerLeave={stopStepRepeat}
+      onPointerCancel={stopStepRepeat}
+      onClick={(event) => {
+        // Pointer clicks already stepped via pointerdown; keyboard activation has no pointerdown.
+        if (event.detail === 0) {
+          stepTime(unit, delta);
+        }
+      }}
+    >
+      {delta > 0 ? (
+        <ChevronUp size={18} strokeWidth={2} aria-hidden="true" />
+      ) : (
+        <ChevronDown size={18} strokeWidth={2} aria-hidden="true" />
+      )}
+    </button>
+  );
+
+  const shown = splitTime12(value || EMPTY_PICKER_TIME);
+  // Extract raw 24-hour values for display when not typing (draft is null).
+  // This way the picker shows "23" not "11" after committing 24-hour input.
+  const [rawHour, rawMinute] = (value || EMPTY_PICKER_TIME).split(':');
+
+  return (
+    <span className="sleep-time-input-wrap" ref={containerRef}>
+      <button
+        type="button"
+        className={`sleep-time-trigger ${triggerClassName ?? ''}`}
+        onClick={() => setIsOpen((open) => !open)}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-label={ariaLabel}
+      >
+        {value ? (
+          <span className="sleep-time-trigger-value">{formatSleepLogTime(value)}</span>
+        ) : (
+          <span className="sleep-time-trigger-placeholder">00:00</span>
+        )}
+        <span className="sleep-time-trigger-icon" aria-hidden="true">{icon}</span>
+      </button>
+      {isOpen ? (
+        <div className="sleep-time-picker-pop" role="dialog" aria-label={ariaLabel}>
+          <div className="sleep-time-picker-grid">
+            <div className="sleep-time-picker-col">
+              {renderStepButton('hour', 1, 'Increase hour')}
+              {renderValueInput('hour', rawHour, true)}
+              {renderStepButton('hour', -1, 'Decrease hour')}
+            </div>
+            <span className="sleep-time-picker-colon" aria-hidden="true">:</span>
+            <div className="sleep-time-picker-col">
+              {renderStepButton('minute', 1, 'Increase minute')}
+              {renderValueInput('minute', rawMinute, false)}
+              {renderStepButton('minute', -1, 'Decrease minute')}
+            </div>
+          </div>
+          <div className="sleep-time-picker-ampm" role="group" aria-label="AM or PM">
+            <button
+              type="button"
+              className={shown.period === 'AM' ? 'is-active' : ''}
+              aria-pressed={shown.period === 'AM'}
+              onClick={() => setPeriod('AM')}
+            >
+              AM
+            </button>
+            <button
+              type="button"
+              className={shown.period === 'PM' ? 'is-active' : ''}
+              aria-pressed={shown.period === 'PM'}
+              onClick={() => setPeriod('PM')}
+            >
+              PM
+            </button>
+          </div>
+          {value ? (
+            <button
+              type="button"
+              className="sleep-time-clear"
+              onClick={() => {
+                applyTime('');
+                setIsOpen(false);
+              }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+    </span>
+  );
+};
+
+interface SleepDateChangerProps {
+  label: string;
+  value: string;
+  maxDate: string;
+  onSelect: (date: string) => void;
+}
+
+const SleepDateChanger = ({ label, value, maxDate, onSelect }: SleepDateChangerProps) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [viewYear, setViewYear] = useState(() => Number(value.slice(0, 4)));
+  const [viewMonth, setViewMonth] = useState(() => Number(value.slice(5, 7)) - 1);
+  const containerRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
+
+  const toggleOpen = () => {
+    if (!isOpen) {
+      setViewYear(Number(value.slice(0, 4)));
+      setViewMonth(Number(value.slice(5, 7)) - 1);
+    }
+    setIsOpen((open) => !open);
+  };
+
+  const stepMonth = (delta: number) => {
+    const view = new Date(viewYear, viewMonth + delta, 1);
+    setViewYear(view.getFullYear());
+    setViewMonth(view.getMonth());
+  };
+
+  // 0 = Sunday … 6 = Saturday, from the locale's 1–7 (Monday-first) convention.
+  const weekStart = getLocaleFirstWeekday() % 7;
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+  const leadingBlanks = (new Date(viewYear, viewMonth, 1).getDay() - weekStart + 7) % 7;
+  const nextMonthFirstDay = `${new Date(viewYear, viewMonth + 1, 1).getFullYear()}-${pad2(new Date(viewYear, viewMonth + 1, 1).getMonth() + 1)}-01`;
+  const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
+  // Jan 4, 2026 is a Sunday; offsets from it yield each weekday label.
+  const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
+    weekdayFormatter.format(new Date(2026, 0, 4 + ((weekStart + index) % 7))),
+  );
+  const monthTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(
+    new Date(viewYear, viewMonth, 1),
+  );
+
+  return (
+    <span className="sleep-date-anchor" ref={containerRef}>
+      <button type="button" className="sleep-text-button" onClick={toggleOpen} aria-haspopup="dialog" aria-expanded={isOpen}>
+        {label}
+      </button>
+      {isOpen ? (
+        <div className="sleep-date-pop" role="dialog" aria-label="Choose date">
+          <div className="sleep-date-pop-header">
+            <span className="sleep-date-pop-title">{monthTitle}</span>
+            <div className="sleep-date-pop-nav">
+              <button type="button" className="sleep-time-step" aria-label="Previous month" onClick={() => stepMonth(-1)}>
+                <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                className="sleep-time-step"
+                aria-label="Next month"
+                disabled={nextMonthFirstDay > maxDate}
+                onClick={() => stepMonth(1)}
+              >
+                <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </div>
+          </div>
+          <div className="sleep-date-grid">
+            {weekdayLabels.map((label, index) => (
+              <span key={`weekday-${index}`} className="sleep-date-weekday" aria-hidden="true">
+                {label}
+              </span>
+            ))}
+            {Array.from({ length: leadingBlanks }, (_, index) => (
+              <span key={`blank-${index}`} aria-hidden="true" />
+            ))}
+            {Array.from({ length: daysInMonth }, (_, index) => {
+              const day = index + 1;
+              const dateString = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(day)}`;
+
+              return (
+                <button
+                  key={dateString}
+                  type="button"
+                  className={`sleep-date-day ${dateString === value ? 'is-selected' : ''} ${dateString === maxDate ? 'is-today' : ''}`}
+                  disabled={dateString > maxDate}
+                  aria-pressed={dateString === value}
+                  onClick={() => {
+                    onSelect(dateString);
+                    setIsOpen(false);
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+    </span>
+  );
 };
 
 interface DailyRolloverSlice {
@@ -343,7 +873,7 @@ const App = () => {
   const [currentFocusTaskId, setCurrentFocusTaskId] = useState<string | null>(null);
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
   const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
-  const [sleepEditorDate, setSleepEditorDate] = useState(() => getLocalDateString());
+  const [expandedSleepDate, setExpandedSleepDate] = useState<string | null>(null);
   const [lastRolloverDate, setLastRolloverDate] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
@@ -910,12 +1440,22 @@ const App = () => {
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
   const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
-  const sleepEditorRecord = sleepLogRecords.find((record) => record.date === sleepEditorDate) ?? {
-    date: sleepEditorDate,
+  const sleepToday = getLocalDateString();
+  const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday) ?? {
+    date: sleepToday,
     bedtime: '',
     wakeTime: '',
   };
-  const sleepLogHistory = sleepLogRecords.filter((record) => record.date !== sleepEditorDate);
+  // Today lives in the card above; History is strictly past days.
+  const visibleSleepWeeks = groupSleepLogRecordsByWeek(
+    sleepLogRecords.filter((record) => record.date !== sleepToday),
+  );
+  const sleepDurationText = formatSleepDuration(sleepTodayRecord.bedtime, sleepTodayRecord.wakeTime);
+  const sleepYesterday = (() => {
+    const date = new Date(`${sleepToday}T00:00:00`);
+    date.setDate(date.getDate() - 1);
+    return getLocalDateString(date);
+  })();
 
   const markHistoryTaskComplete = (date: string, taskId: string) => {
     setDailyHistory((records) =>
@@ -1098,22 +1638,42 @@ const App = () => {
     };
   }, [activeView]);
 
-  const syncDivideAndConquerDraftRowsFromTasks = (tasks: DivideAndConquerTask[]) => {
-    const nextText = formatDivideAndConquerTasksText(tasks);
+  // Board edits touch only the one planner row matching the task's text;
+  // rebuilding every row from the task list would wipe planner lines that
+  // were typed after the last "Prioritize tasks" and never became tasks.
+  const updateDraftRowMatchingText = (taskText: string, replacement: string | null) => {
+    const rows = divideAndConquerDraftRowsRef.current;
+    const rowIndex = rows.findIndex((row) => row.text.trim() === taskText.trim());
 
-    syncDivideAndConquerDraftRowsFromText(nextText || DEFAULT_DIVIDE_AND_CONQUER_TEXT);
+    if (rowIndex < 0) {
+      return;
+    }
+
+    commitDivideAndConquerDraftRows(
+      replacement === null
+        ? rows.filter((_, index) => index !== rowIndex)
+        : rows.map((row, index) => (index === rowIndex ? { ...row, text: replacement } : row)),
+    );
   };
 
   const updateDivideAndConquerTaskText = (taskId: string, text: string) => {
-    const nextItems = divideAndConquerItems.map((item) => (item.id === taskId ? { ...item, text } : item));
-    setDivideAndConquerItems(nextItems);
-    syncDivideAndConquerDraftRowsFromTasks(nextItems);
+    const previousTask = divideAndConquerItems.find((item) => item.id === taskId);
+    setDivideAndConquerItems(
+      divideAndConquerItems.map((item) => (item.id === taskId ? { ...item, text } : item)),
+    );
+
+    if (previousTask) {
+      updateDraftRowMatchingText(previousTask.text, text);
+    }
   };
 
   const deleteDivideAndConquerTask = (taskId: string) => {
-    const nextItems = divideAndConquerItems.filter((item) => item.id !== taskId);
-    setDivideAndConquerItems(nextItems);
-    syncDivideAndConquerDraftRowsFromTasks(nextItems);
+    const deletedTask = divideAndConquerItems.find((item) => item.id === taskId);
+    setDivideAndConquerItems(divideAndConquerItems.filter((item) => item.id !== taskId));
+
+    if (deletedTask) {
+      updateDraftRowMatchingText(deletedTask.text, null);
+    }
 
     if (editingDivideAndConquerTaskId === taskId) {
       setEditingDivideAndConquerTaskId(null);
@@ -1437,14 +1997,50 @@ const App = () => {
       const nextRecord = { ...currentRecord, ...updates };
       const recordsWithoutDate = currentRecords.filter((record) => record.date !== date);
 
+      // A record with neither time left is deleted, not kept as a blank row.
+      if (!nextRecord.bedtime && !nextRecord.wakeTime) {
+        return recordsWithoutDate;
+      }
+
       return [nextRecord, ...recordsWithoutDate].sort((a, b) => b.date.localeCompare(a.date));
     });
   };
 
-  const editSleepLogRecord = (date: string) => {
-    setSleepEditorDate(date);
+  // A day opened via Add starts as a blank record; if it is still blank when its
+  // row closes, drop it so abandoned adds leave no empty rows behind.
+  const pruneEmptySleepRecord = (date: string) => {
+    setSleepLogRecords((currentRecords) =>
+      currentRecords.filter((record) => !(record.date === date && !record.bedtime && !record.wakeTime)),
+    );
+  };
+
+  const setExpandedSleepRow = (date: string | null) => {
+    if (expandedSleepDate && expandedSleepDate !== date) {
+      pruneEmptySleepRecord(expandedSleepDate);
+    }
+    setExpandedSleepDate(date);
+  };
+
+  const toggleSleepHistoryRow = (date: string) => {
+    const next = expandedSleepDate === date ? null : date;
+    setExpandedSleepRow(next);
+
+    if (next) {
+      window.requestAnimationFrame(() => {
+        document.querySelector<HTMLButtonElement>('.sleep-row-bedtime')?.focus();
+      });
+    }
+  };
+
+  const addSleepHistoryDay = (date: string) => {
+    setSleepLogRecords((currentRecords) =>
+      currentRecords.some((record) => record.date === date)
+        ? currentRecords
+        : [{ date, bedtime: '', wakeTime: '' }, ...currentRecords].sort((a, b) => b.date.localeCompare(a.date)),
+    );
+    setExpandedSleepRow(date);
     window.requestAnimationFrame(() => {
-      document.querySelector<HTMLInputElement>('.sleep-editor-bedtime')?.focus();
+      document.querySelector<HTMLButtonElement>('.sleep-row-bedtime')?.focus();
     });
   };
 
@@ -1455,6 +2051,7 @@ const App = () => {
       confirmLabel: 'Delete',
       onConfirm: () => {
         setSleepLogRecords((currentRecords) => currentRecords.filter((record) => record.date !== date));
+        setExpandedSleepDate((current) => (current === date ? null : current));
         setStatus('Sleep record deleted');
       },
     });
@@ -2028,7 +2625,7 @@ const App = () => {
                   onClick={() => {
                     setIsPlanMenuOpen(false);
                     setIsSheetMenuOpen(false);
-                    setSleepEditorDate(getLocalDateString());
+                    setExpandedSleepDate(null);
                     setActiveView('sleepLog');
                   }}
                 >
@@ -2287,7 +2884,7 @@ const App = () => {
                 aria-label="Daily plan tasks"
               >
                 {divideAndConquerDraftRows.map((row, index) => (
-                  <div key={row.id} className="dq-task-row" role="listitem">
+                  <div key={row.id} className={`dq-task-row${row.text.trim() ? ' has-text' : ''}`} role="listitem">
                     <span className="dq-task-number" aria-hidden="true">
                       {index + 1}.
                     </span>
@@ -2550,118 +3147,151 @@ const App = () => {
           <section className="sleep-log-page" aria-labelledby="sleep-log-title">
             <div className="sleep-log-shell">
               <header className="sleep-log-heading">
-                <h1 id="sleep-log-title">Sleep log</h1>
-                <p>Bedtime and wake-up time are saved automatically.</p>
+                <div className="sleep-log-heading-row">
+                  <div>
+                    <h1 id="sleep-log-title">Sleep <span>· {formatSleepLogDate(sleepToday)}</span></h1>
+                  </div>
+                  <div className="sleep-log-actions">
+                    {sleepLogRecords.some((record) => record.date === sleepToday) ? (
+                      <button
+                        type="button"
+                        className="sleep-text-button sleep-remove-button"
+                        onClick={() => deleteSleepLogRecord(sleepToday)}
+                      >
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
               </header>
-              <div className="sleep-log-table-wrap">
-                <table className="sleep-log-table">
-                  <colgroup>
-                    <col className="sleep-date-column" />
-                    <col className="sleep-time-column" />
-                    <col className="sleep-duration-column" />
-                    <col className="sleep-time-column" />
-                    <col className="sleep-actions-column" />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th scope="col">Date</th>
-                      <th scope="col">Bedtime</th>
-                      <th scope="col">Slept</th>
-                      <th scope="col">Wake-up</th>
-                      <th scope="col"><span className="visually-hidden">Actions</span></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="sleep-editor-row">
-                      <td>
-                        <input
-                          type="date"
-                          value={sleepEditorDate}
-                          max={getLocalDateString()}
-                          onChange={(event) => {
-                            if (event.target.value) {
-                              setSleepEditorDate(event.target.value);
-                            }
-                          }}
-                          aria-label="Sleep record date"
-                        />
-                      </td>
-                      <td>
-                        <input
-                          className="sleep-editor-bedtime"
-                          type="time"
-                          value={sleepEditorRecord.bedtime}
-                          onChange={(event) => updateSleepLogRecord(sleepEditorDate, { bedtime: event.target.value })}
-                          aria-label={`Bedtime for ${formatSleepLogDate(sleepEditorDate)}`}
-                        />
-                      </td>
-                      <td>
-                        <output
-                          className="sleep-duration-value"
-                          aria-label={`Sleep duration ${formatSleepDuration(
-                            sleepEditorRecord.bedtime,
-                            sleepEditorRecord.wakeTime,
-                          )}`}
-                        >
-                          {formatSleepDuration(sleepEditorRecord.bedtime, sleepEditorRecord.wakeTime)}
-                        </output>
-                      </td>
-                      <td>
-                        <input
-                          type="time"
-                          value={sleepEditorRecord.wakeTime}
-                          onChange={(event) => updateSleepLogRecord(sleepEditorDate, { wakeTime: event.target.value })}
-                          aria-label={`Wake-up time for ${formatSleepLogDate(sleepEditorDate)}`}
-                        />
-                      </td>
-                      <td className="sleep-row-actions">
-                        {sleepLogRecords.some((record) => record.date === sleepEditorDate) ? (
-                          <button
-                            type="button"
-                            className="sleep-delete-button"
-                            onClick={() => deleteSleepLogRecord(sleepEditorDate)}
-                            aria-label={`Delete sleep record for ${formatSleepLogDate(sleepEditorDate)}`}
-                            title="Delete sleep record"
-                          >
-                            <Trash2 size={18} strokeWidth={1.8} aria-hidden="true" />
-                          </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                    {sleepLogHistory.map((record) => (
-                      <tr key={record.date}>
-                        <th scope="row">{formatSleepLogDate(record.date)}</th>
-                        <td>{formatSleepLogTime(record.bedtime)}</td>
-                        <td><strong className="sleep-duration-value">{formatSleepDuration(record.bedtime, record.wakeTime)}</strong></td>
-                        <td>{formatSleepLogTime(record.wakeTime)}</td>
-                        <td className="sleep-row-actions">
-                          <button
-                            type="button"
-                            className="sleep-edit-button"
-                            onClick={() => editSleepLogRecord(record.date)}
-                            aria-label={`Edit sleep record for ${formatSleepLogDate(record.date)}`}
-                            title="Edit sleep record"
-                          >
-                            <Pencil size={18} strokeWidth={1.8} aria-hidden="true" />
-                          </button>
-                          <button
-                            type="button"
-                            className="sleep-delete-button"
-                            onClick={() => deleteSleepLogRecord(record.date)}
-                            aria-label={`Delete sleep record for ${formatSleepLogDate(record.date)}`}
-                            title="Delete sleep record"
-                          >
-                            <Trash2 size={18} strokeWidth={1.8} aria-hidden="true" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {sleepLogRecords.length === 0 ? (
-                <p className="sleep-log-empty">Enter your bedtime and wake-up time to start the log.</p>
-              ) : null}
+              <section className="sleep-entry-card" aria-label="Sleep entry">
+                <div className="sleep-editor-fields">
+                  <div className="sleep-time-field">
+                    <span>Bed</span>
+                    <SleepTimePicker
+                      value={sleepTodayRecord.bedtime}
+                      ariaLabel="Bedtime for today"
+                      triggerClassName="sleep-editor-bedtime"
+                      icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
+                      onChange={(time) => updateSleepLogRecord(sleepToday, { bedtime: time })}
+                    />
+                  </div>
+                  {sleepDurationText !== '—' ? (
+                    <output className="sleep-duration-summary" aria-label={`Sleep duration ${sleepDurationText}`}>
+                      <strong>{sleepDurationText}</strong>
+                    </output>
+                  ) : (
+                    <span className="sleep-duration-summary" aria-hidden="true" />
+                  )}
+                  <div className="sleep-time-field">
+                    <span>Wake</span>
+                    <SleepTimePicker
+                      value={sleepTodayRecord.wakeTime}
+                      ariaLabel="Wake-up time for today"
+                      icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
+                      onChange={(time) => updateSleepLogRecord(sleepToday, { wakeTime: time })}
+                    />
+                  </div>
+                </div>
+              </section>
+              <section className="sleep-history" aria-label="Sleep history">
+                <div className="sleep-history-heading">
+                  <h2>History</h2>
+                  <SleepDateChanger
+                    label="Add"
+                    value={sleepYesterday}
+                    maxDate={sleepYesterday}
+                    onSelect={addSleepHistoryDay}
+                  />
+                </div>
+                <div className="sleep-week-list">
+                  {visibleSleepWeeks.map((week) => (
+                    <section
+                      key={week.startDate}
+                      className="sleep-week"
+                      aria-label={formatSleepLogWeekRange(week.startDate, week.endDate)}
+                    >
+                      <h3>{formatSleepLogWeekRange(week.startDate, week.endDate)}</h3>
+                      <div className="sleep-history-rows">
+                        {week.records.map((record) => {
+                          const isExpanded = record.date === expandedSleepDate;
+                          const duration = formatSleepDuration(record.bedtime, record.wakeTime);
+
+                          return (
+                            <div key={record.date} className={`sleep-history-item${isExpanded ? ' is-expanded' : ''}`}>
+                              <button
+                                type="button"
+                                className="sleep-history-row"
+                                onClick={() => toggleSleepHistoryRow(record.date)}
+                                aria-expanded={isExpanded}
+                                aria-label={`Edit sleep record for ${formatSleepLogDate(record.date)}`}
+                              >
+                                <time className="sleep-history-date" dateTime={record.date}>
+                                  {formatSleepLogDayLabel(record.date)}
+                                </time>
+                                <span className="sleep-history-range">
+                                  {record.bedtime ? (
+                                    formatSleepLogTime(record.bedtime)
+                                  ) : (
+                                    <span className="is-missing">–:––</span>
+                                  )}
+                                  {' – '}
+                                  {record.wakeTime ? (
+                                    formatSleepLogTime(record.wakeTime)
+                                  ) : (
+                                    <span className="is-missing">–:––</span>
+                                  )}
+                                </span>
+                                <span className="sleep-history-duration">{duration === '—' ? '' : duration}</span>
+                                <ChevronRight className="sleep-history-chevron" size={16} strokeWidth={2} aria-hidden="true" />
+                              </button>
+                              {isExpanded ? (
+                                <div className="sleep-history-editor">
+                                  <div className="sleep-editor-fields">
+                                    <div className="sleep-time-field">
+                                      <span>Bed</span>
+                                      <SleepTimePicker
+                                        value={record.bedtime}
+                                        ariaLabel={`Bedtime for ${formatSleepLogDate(record.date)}`}
+                                        triggerClassName="sleep-row-bedtime"
+                                        icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
+                                        onChange={(time) => updateSleepLogRecord(record.date, { bedtime: time })}
+                                      />
+                                    </div>
+                                    {duration !== '—' ? (
+                                      <output className="sleep-duration-summary" aria-label={`Sleep duration ${duration}`}>
+                                        <strong>{duration}</strong>
+                                      </output>
+                                    ) : (
+                                      <span className="sleep-duration-summary" aria-hidden="true" />
+                                    )}
+                                    <div className="sleep-time-field">
+                                      <span>Wake</span>
+                                      <SleepTimePicker
+                                        value={record.wakeTime}
+                                        ariaLabel={`Wake-up time for ${formatSleepLogDate(record.date)}`}
+                                        icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
+                                        onChange={(time) => updateSleepLogRecord(record.date, { wakeTime: time })}
+                                      />
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="sleep-text-button sleep-remove-button"
+                                    onClick={() => deleteSleepLogRecord(record.date)}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </section>
             </div>
           </section>
         ) : activeView === 'history' ? (
