@@ -8,6 +8,7 @@ import type {
   DailyHistoryRecord,
   DivideAndConquerBucket,
   DivideAndConquerTask,
+  IdeaRecord,
   SleepLogRecord,
 } from './types';
 
@@ -15,8 +16,8 @@ const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
 const LEGACY_SHEETS_STORE_KEY = 'sheets';
 const APP_STATE_STORE_KEY = 'state';
-const BACKUP_VERSION = 7;
-const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, BACKUP_VERSION];
+const BACKUP_VERSION = 8;
+const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, 7, BACKUP_VERSION];
 
 export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
 export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
@@ -216,6 +217,55 @@ export const normalizeSleepLogRecords = (value: unknown): SleepLogRecord[] => {
     .filter((record, index, records) => index === 0 || record.date !== records[index - 1].date);
 };
 
+export const normalizeIdeas = (value: unknown): IdeaRecord[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const ideas = value
+    .filter(
+      (idea): idea is IdeaRecord =>
+        typeof idea === 'object' &&
+        idea !== null &&
+        typeof (idea as IdeaRecord).id === 'string' &&
+        typeof (idea as IdeaRecord).text === 'string' &&
+        typeof (idea as IdeaRecord).createdAt === 'string',
+    )
+    .map((idea) => ({
+      id: idea.id,
+      number: typeof idea.number === 'number' && Number.isInteger(idea.number) && idea.number > 0 ? idea.number : 0,
+      text: idea.text,
+      ...(typeof idea.place === 'string' && idea.place.trim() ? { place: idea.place } : {}),
+      createdAt: idea.createdAt,
+      ...(typeof idea.updatedAt === 'string' ? { updatedAt: idea.updatedAt } : {}),
+    }))
+    .filter((idea, index, all) => all.findIndex((other) => other.id === idea.id) === index);
+
+  // Ideas saved before numbering existed get numbers by creation order,
+  // continuing after the highest number already taken.
+  let nextNumber = ideas.reduce((max, idea) => Math.max(max, idea.number), 0);
+  ideas
+    .filter((idea) => idea.number === 0)
+    .sort((first, second) => first.createdAt.localeCompare(second.createdAt))
+    .forEach((idea) => {
+      nextNumber += 1;
+      idea.number = nextNumber;
+    });
+
+  return ideas;
+};
+
+export const normalizeIdeaPlaces = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((place): place is string => typeof place === 'string')
+    .map((place) => place.trim())
+    .filter((place, index, places) => place.length > 0 && places.indexOf(place) === index);
+};
+
 export const normalizeLastRolloverDate = (value: unknown): string | null =>
   typeof value === 'string' && LOCAL_DATE_PATTERN.test(value) ? value : null;
 
@@ -238,6 +288,8 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
       currentFocusTaskId: null,
       dailyHistory: [],
       sleepLogRecords: [],
+      ideas: [],
+      ideaPlaces: [],
       lastRolloverDate: null,
     };
   }
@@ -261,6 +313,8 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
     currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
     dailyHistory: normalizeDailyHistory(state.dailyHistory),
     sleepLogRecords: normalizeSleepLogRecords(state.sleepLogRecords),
+    ideas: normalizeIdeas(state.ideas),
+    ideaPlaces: normalizeIdeaPlaces(state.ideaPlaces),
     lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
   };
 };
@@ -272,6 +326,8 @@ const createDefaultAppState = (): AppState => ({
   currentFocusTaskId: null,
   dailyHistory: [],
   sleepLogRecords: [],
+  ideas: [],
+  ideaPlaces: [],
   lastRolloverDate: null,
 });
 
@@ -359,6 +415,8 @@ export const saveAppState = async (state: AppState): Promise<void> =>
       currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
       dailyHistory: normalizeDailyHistory(state.dailyHistory),
       sleepLogRecords: normalizeSleepLogRecords(state.sleepLogRecords),
+      ideas: normalizeIdeas(state.ideas),
+      ideaPlaces: normalizeIdeaPlaces(state.ideaPlaces),
       lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
     };
     const request = store.put(normalizedState, APP_STATE_STORE_KEY);
@@ -376,6 +434,8 @@ export const createBackupPayload = (state: AppState): BackupPayload => ({
   currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, state.divideAndConquerItems),
   dailyHistory: state.dailyHistory,
   sleepLogRecords: state.sleepLogRecords,
+  ideas: state.ideas,
+  ideaPlaces: state.ideaPlaces,
   lastRolloverDate: state.lastRolloverDate,
 });
 
@@ -444,6 +504,20 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
             typeof record.bedtime === 'string' &&
             typeof record.wakeTime === 'string',
         ))) &&
+    (payload.ideas === undefined ||
+      (Array.isArray(payload.ideas) &&
+        payload.ideas.every(
+          (idea) =>
+            typeof idea === 'object' &&
+            idea !== null &&
+            typeof idea.id === 'string' &&
+            typeof idea.text === 'string' &&
+            typeof idea.createdAt === 'string' &&
+            ((idea as IdeaRecord).place === undefined || typeof (idea as IdeaRecord).place === 'string') &&
+            ((idea as IdeaRecord).updatedAt === undefined || typeof (idea as IdeaRecord).updatedAt === 'string'),
+        ))) &&
+    (payload.ideaPlaces === undefined ||
+      (Array.isArray(payload.ideaPlaces) && payload.ideaPlaces.every((place) => typeof place === 'string'))) &&
     (payload.divideAndConquerItems === undefined ||
       (Array.isArray(payload.divideAndConquerItems) &&
         payload.divideAndConquerItems.every(

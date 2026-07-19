@@ -44,6 +44,8 @@ import {
   loadAppState,
   normalizeCurrentFocusTaskId,
   normalizeDailyHistory,
+  normalizeIdeaPlaces,
+  normalizeIdeas,
   normalizeLastRolloverDate,
   normalizeSheets,
   normalizeSleepLogRecords,
@@ -57,6 +59,7 @@ import type {
   DailyHistoryRecord,
   DivideAndConquerBucket,
   DivideAndConquerTask,
+  IdeaRecord,
   SectionId,
   SleepLogRecord,
 } from './types';
@@ -74,7 +77,7 @@ const TaskSorterMenuIcon = () => (
 );
 
 
-type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'sleepLog';
+type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'sleepLog' | 'ideas';
 
 // Views live in the URL hash so deep links and the back button work on GitHub
 // Pages, and every switch registers as a PostHog $pageview via pushState.
@@ -84,6 +87,7 @@ const VIEW_HASHES: Record<AppView, string> = {
   sortBoard: '#/sort',
   history: '#/history',
   sleepLog: '#/sleep',
+  ideas: '#/ideas',
 };
 
 const parseViewFromHash = (hash: string): AppView => {
@@ -238,6 +242,24 @@ const getLocalDateString = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 const LAST_EXPORT_STORAGE_KEY = 'checklist:lastExportAt';
+
+const autoSizeTextArea = (element: HTMLTextAreaElement) => {
+  element.style.height = 'auto';
+  element.style.height = `${element.scrollHeight}px`;
+};
+
+const formatIdeaTimestamp = (isoTimestamp: string) => {
+  const date = new Date(isoTimestamp);
+  const includeYear = date.getFullYear() !== new Date().getFullYear();
+
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    ...(includeYear ? { year: 'numeric' } : {}),
+  }).format(date);
+};
 
 const daysAgoFromToday = (date: string) =>
   Math.round(
@@ -855,6 +877,15 @@ const App = () => {
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
   const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
   const [expandedSleepDate, setExpandedSleepDate] = useState<string | null>(null);
+  const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
+  const [ideaDraft, setIdeaDraft] = useState('');
+  const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null);
+  const [ideaEditDraft, setIdeaEditDraft] = useState('');
+  const ideaInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const [ideaPlaces, setIdeaPlaces] = useState<string[]>([]);
+  const [placePicker, setPlacePicker] = useState<{ mode: 'new'; text: string } | { mode: 'existing'; ideaId: string } | null>(null);
+  const [newPlaceDraft, setNewPlaceDraft] = useState('');
+  const [isEditingPlaces, setIsEditingPlaces] = useState(false);
   const [lastRolloverDate, setLastRolloverDate] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
@@ -1175,6 +1206,8 @@ const App = () => {
         setCurrentFocusTaskId(rolled.slice.currentFocusTaskId);
         setDailyHistory(rolled.slice.dailyHistory);
         setSleepLogRecords(storedState.sleepLogRecords);
+        setIdeas(storedState.ideas);
+        setIdeaPlaces(storedState.ideaPlaces);
         setLastRolloverDate(rolled.slice.lastRolloverDate);
         // First-ever launch also reports didRollover; only a real day change counts.
         if (rolled.didRollover && storedState.lastRolloverDate !== null) {
@@ -1228,6 +1261,8 @@ const App = () => {
       currentFocusTaskId,
       dailyHistory,
       sleepLogRecords,
+      ideas,
+      ideaPlaces,
       lastRolloverDate,
     };
     latestAppStateRef.current = state;
@@ -1259,6 +1294,8 @@ const App = () => {
     dailyHistory,
     divideAndConquerItems,
     divideAndConquerText,
+    ideaPlaces,
+    ideas,
     isLoaded,
     lastRolloverDate,
     persistenceBlocked,
@@ -1948,6 +1985,8 @@ const App = () => {
       currentFocusTaskId,
       dailyHistory,
       sleepLogRecords,
+      ideas,
+      ideaPlaces,
       lastRolloverDate,
     });
     const timeStamp = new Date().toISOString().slice(0, 10);
@@ -1999,6 +2038,8 @@ const App = () => {
       setCurrentFocusTaskId(normalizeCurrentFocusTaskId(parsed.currentFocusTaskId, nextDivideAndConquerItems));
       setDailyHistory(normalizeDailyHistory(parsed.dailyHistory));
       setSleepLogRecords(normalizeSleepLogRecords(parsed.sleepLogRecords));
+      setIdeas(normalizeIdeas(parsed.ideas));
+      setIdeaPlaces(normalizeIdeaPlaces(parsed.ideaPlaces));
       // Old backups carry no rollover date; stamping today keeps the imported
       // tasks from being swept into history on the next rollover check.
       setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
@@ -2128,6 +2169,162 @@ const App = () => {
         setExpandedSleepDate((current) => (current === date ? null : current));
         setStatus('Sleep record deleted');
         track('sleep_record_deleted');
+      },
+    });
+  };
+
+  const commitIdea = (text: string, place: string | null) => {
+    setIdeas((currentIdeas) => [
+      {
+        id: makeDivideAndConquerTaskId(),
+        number:
+          currentIdeas.reduce(
+            (max, idea) => (Number.isInteger(idea.number) && idea.number > max ? idea.number : max),
+            0,
+          ) + 1,
+        text,
+        ...(place ? { place } : {}),
+        createdAt: new Date().toISOString(),
+      },
+      ...currentIdeas,
+    ]);
+    setStatus('Idea saved');
+    track('idea_added', { has_place: place !== null });
+  };
+
+  // Writing an idea first asks where it is; the text waits in the picker state.
+  const addIdea = () => {
+    const text = ideaDraft.trim();
+
+    if (!text) {
+      return;
+    }
+
+    setIdeaDraft('');
+    window.requestAnimationFrame(() => {
+      if (ideaInputRef.current) {
+        autoSizeTextArea(ideaInputRef.current);
+      }
+    });
+    setNewPlaceDraft('');
+    setIsEditingPlaces(false);
+    setPlacePicker({ mode: 'new', text });
+  };
+
+  const choosePlace = (place: string | null) => {
+    if (!placePicker) {
+      return;
+    }
+
+    if (placePicker.mode === 'new') {
+      commitIdea(placePicker.text, place);
+    } else {
+      const targetId = placePicker.ideaId;
+      setIdeas((currentIdeas) =>
+        currentIdeas.map((idea) => (idea.id === targetId ? { ...idea, place: place ?? undefined } : idea)),
+      );
+      setStatus(place ? 'Idea place updated' : 'Idea place removed');
+      track('idea_place_changed', { removed: place === null });
+    }
+
+    setPlacePicker(null);
+  };
+
+  // Dismissing the picker must never lose a written idea — it saves placeless.
+  const dismissPlacePicker = () => {
+    if (!placePicker) {
+      return;
+    }
+
+    if (placePicker.mode === 'new') {
+      commitIdea(placePicker.text, null);
+    }
+
+    setPlacePicker(null);
+  };
+
+  const openPlacePickerForIdea = (ideaId: string) => {
+    setNewPlaceDraft('');
+    setIsEditingPlaces(false);
+    setPlacePicker({ mode: 'existing', ideaId });
+  };
+
+  const addPlace = () => {
+    const name = newPlaceDraft.trim();
+
+    if (!name) {
+      return;
+    }
+
+    const existing = ideaPlaces.find((place) => place.toLowerCase() === name.toLowerCase());
+
+    if (!existing) {
+      setIdeaPlaces((currentPlaces) => [...currentPlaces, name]);
+    }
+
+    setNewPlaceDraft('');
+
+    if (!isEditingPlaces) {
+      choosePlace(existing ?? name);
+    }
+  };
+
+  const renamePlace = (index: number, rawName: string) => {
+    const name = rawName.trim();
+    const oldName = ideaPlaces[index];
+
+    if (!name || !oldName || name === oldName) {
+      return;
+    }
+
+    setIdeaPlaces((currentPlaces) => currentPlaces.map((place, placeIndex) => (placeIndex === index ? name : place)));
+    // Tagged ideas follow the rename so the list and the tags never diverge.
+    setIdeas((currentIdeas) => currentIdeas.map((idea) => (idea.place === oldName ? { ...idea, place: name } : idea)));
+  };
+
+  const deletePlace = (index: number) => {
+    setIdeaPlaces((currentPlaces) => currentPlaces.filter((_, placeIndex) => placeIndex !== index));
+  };
+
+  const startIdeaEdit = (idea: IdeaRecord) => {
+    setEditingIdeaId(idea.id);
+    setIdeaEditDraft(idea.text);
+  };
+
+  const cancelIdeaEdit = () => {
+    setEditingIdeaId(null);
+    setIdeaEditDraft('');
+  };
+
+  const saveIdeaEdit = () => {
+    const text = ideaEditDraft.trim();
+    const editedIdea = editingIdeaId ? ideas.find((idea) => idea.id === editingIdeaId) : null;
+
+    // An unchanged text is a browse, not an edit — no timestamp, no event.
+    if (!editedIdea || !text || text === editedIdea.text) {
+      cancelIdeaEdit();
+      return;
+    }
+
+    setIdeas((currentIdeas) =>
+      currentIdeas.map((idea) =>
+        idea.id === editingIdeaId ? { ...idea, text, updatedAt: new Date().toISOString() } : idea,
+      ),
+    );
+    cancelIdeaEdit();
+    setStatus('Idea updated');
+    track('idea_edited');
+  };
+
+  const deleteIdea = (ideaId: string) => {
+    setConfirmState({
+      title: 'Delete idea',
+      message: 'Delete this idea?',
+      confirmLabel: 'Delete',
+      onConfirm: () => {
+        setIdeas((currentIdeas) => currentIdeas.filter((idea) => idea.id !== ideaId));
+        setStatus('Idea deleted');
+        track('idea_deleted');
       },
     });
   };
@@ -2730,6 +2927,17 @@ const App = () => {
                 >
                   Sleep log
                 </button>
+                <button
+                  type="button"
+                  className="nav-link-button ideas-nav-button"
+                  onClick={() => {
+                    setIsPlanMenuOpen(false);
+                    setIsSheetMenuOpen(false);
+                    navigateToView('ideas');
+                  }}
+                >
+                  Ideas
+                </button>
                 <div ref={sheetMenuRef} className={`sheet-menu-root ${isSheetMenuOpen ? 'menu-open' : ''}`}>
                   <button
                     type="button"
@@ -2921,7 +3129,7 @@ const App = () => {
                   </svg>
                 </button>
               </>
-            ) : activeView === 'sleepLog' ? (
+            ) : activeView === 'sleepLog' || activeView === 'ideas' ? (
               <>
                 <button
                   type="button"
@@ -3239,6 +3447,118 @@ const App = () => {
                     </section>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
+        ) : activeView === 'ideas' ? (
+          <section className="sleep-log-page ideas-page" aria-labelledby="ideas-title">
+            <div className="sleep-log-shell">
+              <header className="sleep-log-heading">
+                <div className="sleep-log-heading-row">
+                  <h1 id="ideas-title">Ideas</h1>
+                </div>
+              </header>
+              <form
+                className="idea-add-row"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  addIdea();
+                }}
+              >
+                <textarea
+                  className="idea-input"
+                  ref={ideaInputRef}
+                  rows={1}
+                  value={ideaDraft}
+                  onChange={(event) => {
+                    setIdeaDraft(event.target.value);
+                    autoSizeTextArea(event.target);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      addIdea();
+                    }
+                  }}
+                  placeholder="Write an idea…"
+                  aria-label="New idea"
+                />
+                <button type="submit" className="idea-add-button" disabled={!ideaDraft.trim()}>
+                  Add
+                </button>
+              </form>
+              <div className="idea-list">
+                {ideas.length === 0 ? (
+                  <p className="idea-empty">Ideas you write are kept here.</p>
+                ) : (
+                  ideas.map((idea) => (
+                    <div key={idea.id} className="idea-item">
+                      <div className="idea-meta">
+                        <span className="idea-number">
+                          {idea.number}
+                          <button
+                            type="button"
+                            className={`idea-place${idea.place ? '' : ' is-empty'}`}
+                            onClick={() => openPlacePickerForIdea(idea.id)}
+                            title={idea.place ? 'Change place' : 'Add place'}
+                          >
+                            {idea.place ? `· ${idea.place}` : '· add place'}
+                          </button>
+                        </span>
+                        <span className="idea-times">
+                          <time dateTime={idea.createdAt}>{formatIdeaTimestamp(idea.createdAt)}</time>
+                          {idea.updatedAt ? (
+                            <time dateTime={idea.updatedAt}>edited {formatIdeaTimestamp(idea.updatedAt)}</time>
+                          ) : null}
+                        </span>
+                        <button
+                          type="button"
+                          className="idea-delete"
+                          onClick={() => deleteIdea(idea.id)}
+                          aria-label="Delete idea"
+                        >
+                          ×
+                        </button>
+                      </div>
+                      {editingIdeaId === idea.id ? (
+                        <textarea
+                          className="idea-edit-input"
+                          rows={1}
+                          value={ideaEditDraft}
+                          ref={(element) => {
+                            if (element) {
+                              autoSizeTextArea(element);
+                            }
+                          }}
+                          onChange={(event) => {
+                            setIdeaEditDraft(event.target.value);
+                            autoSizeTextArea(event.target);
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault();
+                              saveIdeaEdit();
+                            } else if (event.key === 'Escape') {
+                              cancelIdeaEdit();
+                            }
+                          }}
+                          onBlur={saveIdeaEdit}
+                          aria-label="Edit idea"
+                          autoFocus
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          className="idea-text"
+                          onClick={() => startIdeaEdit(idea)}
+                          title="Edit idea"
+                        >
+                          {idea.text}
+                        </button>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </section>
@@ -3618,6 +3938,97 @@ const App = () => {
         )}
       </main>
 
+      {placePicker ? (
+        <div className="confirm-backdrop" role="presentation" onClick={dismissPlacePicker}>
+          <div
+            className="confirm-dialog place-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="place-picker-title"
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                dismissPlacePicker();
+              }
+            }}
+          >
+            <div className="place-dialog-header">
+              <h2 id="place-picker-title">Where is it?</h2>
+              {ideaPlaces.length > 0 ? (
+                <button type="button" className="sleep-text-button" onClick={() => setIsEditingPlaces((value) => !value)}>
+                  {isEditingPlaces ? 'Done' : 'Edit'}
+                </button>
+              ) : null}
+            </div>
+            {ideaPlaces.length === 0 ? (
+              <p className="place-empty">Add a place below — it stays in this menu for next time.</p>
+            ) : (
+              <div className="place-list">
+                {ideaPlaces.map((place, index) =>
+                  isEditingPlaces ? (
+                    <div key={`${place}-${index}`} className="place-edit-row">
+                      <input
+                        type="text"
+                        className="place-edit-input"
+                        defaultValue={place}
+                        aria-label={`Rename ${place}`}
+                        onBlur={(event) => renamePlace(index, event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.currentTarget.blur();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        className="place-delete"
+                        onClick={() => deletePlace(index)}
+                        aria-label={`Delete ${place}`}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      key={`${place}-${index}`}
+                      type="button"
+                      className="place-option"
+                      onClick={() => choosePlace(place)}
+                    >
+                      {place}
+                    </button>
+                  ),
+                )}
+              </div>
+            )}
+            <form
+              className="place-add-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                addPlace();
+              }}
+            >
+              <input
+                type="text"
+                className="place-add-input"
+                value={newPlaceDraft}
+                onChange={(event) => setNewPlaceDraft(event.target.value)}
+                placeholder="Add a place…"
+                aria-label="New place"
+                autoFocus={ideaPlaces.length === 0}
+              />
+              <button type="submit" className="idea-add-button" disabled={!newPlaceDraft.trim()}>
+                Add
+              </button>
+            </form>
+            <div className="confirm-actions">
+              <button type="button" className="plain-button cancel-action-button" onClick={() => (placePicker.mode === 'new' ? dismissPlacePicker() : choosePlace(null))}>
+                {placePicker.mode === 'new' ? 'Skip' : 'Remove place'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {confirmState ? (
         <div className="confirm-backdrop" role="presentation" onClick={closeConfirm}>
           <div

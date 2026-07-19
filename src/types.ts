@@ -60,6 +60,15 @@ export interface SleepLogRecord {
   wakeTime: string;
 }
 
+export interface IdeaRecord {
+  id: string;
+  number: number;
+  text: string;
+  place?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface AppState {
   sheets: ChecklistSheet[];
   divideAndConquerText: string;
@@ -67,6 +76,8 @@ export interface AppState {
   currentFocusTaskId: string | null;
   dailyHistory: DailyHistoryRecord[];
   sleepLogRecords: SleepLogRecord[];
+  ideas: IdeaRecord[];
+  ideaPlaces: string[];
   lastRolloverDate: string | null;
 }
 
@@ -79,5 +90,7 @@ export interface BackupPayload {
   currentFocusTaskId?: string | null;
   dailyHistory?: DailyHistoryRecord[];
   sleepLogRecords?: SleepLogRecord[];
+  ideas?: IdeaRecord[];
+  ideaPlaces?: string[];
   lastRolloverDate?: string | null;
 }

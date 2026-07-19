@@ -24,6 +24,12 @@
   border: 0;
 }
 
+html {
+  /* Reserve the scrollbar lane so content never jumps sideways when a
+     view grows past the viewport (e.g. a new idea appearing). */
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   min-width: 320px;
@@ -222,6 +228,13 @@ button {
 
 .sleep-log-nav-button {
   min-width: 6rem;
+}
+
+/* Hopeful sky blue — ideas deserve an inviting color. */
+.nav-link-button.ideas-nav-button:hover,
+.nav-link-button.ideas-nav-button:focus-visible {
+  background: #eaf5ff;
+  color: #0a84ff;
 }
 
 .plan-menu-root {
@@ -2076,6 +2089,33 @@ thead th {
   align-items: center;
   justify-content: center;
   background: rgba(255, 255, 255, 0.78);
+  animation: backdrop-fade-in 140ms ease-out;
+}
+
+@keyframes backdrop-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.confirm-dialog {
+  animation: dialog-pop-in 160ms ease-out;
+}
+
+@keyframes dialog-pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .confirm-dialog {
@@ -3000,5 +3040,343 @@ thead th {
 @media (max-width: 640px) {
   .history-columns {
     grid-template-columns: 1fr;
+  }
+}
+
+.ideas-page .sleep-log-heading {
+  border-bottom: 0;
+  padding-bottom: 0.2rem;
+}
+
+.ideas-page .sleep-log-heading-row {
+  justify-content: center;
+}
+
+.ideas-page .sleep-log-heading-row h1 {
+  margin: 0;
+  color: #111;
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.idea-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.5rem 0 1.4rem;
+}
+
+.idea-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid #e0e4e6;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  padding: 0.45rem 0;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+  transition: border-color 140ms ease;
+}
+
+.idea-input::placeholder {
+  color: #98a3a9;
+}
+
+.idea-input:focus-visible {
+  outline: none;
+  border-bottom-color: #245b67;
+}
+
+.idea-add-button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #245b67;
+  padding: 0.3rem 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  transition: opacity 140ms ease;
+}
+
+.idea-add-button:disabled {
+  color: #98a3a9;
+  opacity: 0.5;
+}
+
+.idea-empty {
+  margin: 0;
+  padding: 1.2rem 0;
+  color: #98a3a9;
+  font-size: 0.95rem;
+}
+
+.idea-item {
+  animation: idea-item-in 180ms ease-out;
+  display: grid;
+  gap: 0.25rem;
+  border-bottom: 1px solid #eef1f2;
+  padding: 0.6rem 0 0.7rem;
+}
+
+.idea-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.idea-item:last-child {
+  border-bottom: 0;
+}
+
+.idea-number {
+  flex: 1;
+  min-width: 0;
+  color: #98a3a9;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.idea-text {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  padding: 0.1rem 0;
+  font-size: 1rem;
+  line-height: 1.45;
+  text-align: left;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.idea-edit-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid #245b67;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  padding: 0.1rem 0;
+  font-family: inherit;
+  font-size: 1rem;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+}
+
+.idea-edit-input:focus-visible {
+  outline: none;
+}
+
+.idea-times {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.15rem 0.6rem;
+  color: #98a3a9;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.idea-delete {
+  flex-shrink: 0;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #98a3a9;
+  font-size: 1.15rem;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.idea-item:hover .idea-delete,
+.idea-item:focus-within .idea-delete {
+  opacity: 1;
+}
+
+.idea-delete:hover,
+.idea-delete:focus-visible {
+  color: #b3261e;
+}
+
+@media (hover: none) {
+  .idea-delete {
+    opacity: 1;
+  }
+}
+
+.place-dialog {
+  border: 1px solid #d8dde2;
+  padding: 1.1rem 1.2rem;
+}
+
+.place-dialog-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.place-dialog-header h2 {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.place-empty {
+  margin: 0.7rem 0 0;
+  color: #98a3a9;
+  font-size: 0.9rem;
+}
+
+.place-list {
+  display: grid;
+  margin-top: 0.6rem;
+}
+
+.place-option {
+  border: 0;
+  border-bottom: 1px solid #eef1f2;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  padding: 0.55rem 0.1rem;
+  font-size: 0.95rem;
+  text-align: left;
+}
+
+.place-option:hover,
+.place-option:focus-visible {
+  background: #eaf5ff;
+  color: #0a84ff;
+}
+
+.place-edit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid #eef1f2;
+  padding: 0.3rem 0;
+}
+
+.place-edit-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid #245b67;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  padding: 0.2rem 0;
+  font-size: 0.95rem;
+}
+
+.place-edit-input:focus-visible {
+  outline: none;
+}
+
+.place-delete {
+  flex-shrink: 0;
+  width: 1.7rem;
+  height: 1.7rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #98a3a9;
+  font-size: 1.05rem;
+  line-height: 1;
+}
+
+.place-delete:hover,
+.place-delete:focus-visible {
+  color: #b3261e;
+}
+
+.place-add-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.7rem;
+}
+
+.place-add-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid #e0e4e6;
+  border-radius: 0;
+  background: transparent;
+  color: #111;
+  padding: 0.35rem 0;
+  font-size: 0.95rem;
+}
+
+.place-add-input::placeholder {
+  color: #98a3a9;
+}
+
+.place-add-input:focus-visible {
+  outline: none;
+  border-bottom-color: #245b67;
+}
+
+.idea-place {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #758187;
+  padding: 0;
+  margin-left: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.idea-place:hover,
+.idea-place:focus-visible {
+  color: #0a84ff;
+}
+
+/* The add-place affordance stays quiet until the row is hovered. */
+.idea-place.is-empty {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.idea-item:hover .idea-place.is-empty,
+.idea-item:focus-within .idea-place.is-empty {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .idea-place.is-empty {
+    opacity: 1;
+  }
+}
+
+@keyframes idea-item-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
