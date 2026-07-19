@@ -735,6 +735,197 @@ button:focus-visible {
   padding-top: 0.75rem;
 }
 
+.dq-split {
+  display: flex;
+  align-items: stretch;
+  width: calc(100vw - 2rem);
+  max-width: 1560px;
+  height: calc(100dvh - 5.5rem);
+  min-height: 420px;
+}
+
+.dq-split-tasks {
+  flex: 0 0 var(--dq-split-left, 50%);
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.dq-split .dq-editor-shell {
+  width: 100%;
+  min-height: 100%;
+}
+
+.dq-split-divider {
+  display: flex;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.dq-split-divider-grip {
+  width: 4px;
+  height: 44px;
+  border-radius: 2px;
+  background: #c3d2d8;
+  transition: background-color 140ms ease;
+}
+
+.dq-split-divider:hover .dq-split-divider-grip,
+.dq-split-divider:focus-visible .dq-split-divider-grip,
+.dq-split.is-dragging .dq-split-divider-grip {
+  background: #245b67;
+}
+
+.dq-split-divider:focus-visible {
+  outline: 2px solid #245b67;
+  outline-offset: -4px;
+}
+
+.dq-split.is-dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* While dragging the divider, the canvas must not swallow pointer events. */
+.dq-split.is-dragging .dq-split-pdf,
+.dq-split.is-dragging .dq-split-tasks {
+  pointer-events: none;
+}
+
+.dq-split-pdf {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pdf-viewer {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #d8e1e5;
+  background: #f6f9fa;
+}
+
+.pdf-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid #d8e1e5;
+}
+
+.pdf-toolbar-title {
+  overflow: hidden;
+  color: #24323a;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.pdf-zoom-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 1px solid #d8e1e5;
+  border-radius: 0;
+  background: #fff;
+  color: #24323a;
+  padding: 0;
+}
+
+.pdf-zoom-level {
+  min-width: 3.4rem;
+  height: 1.8rem;
+  border: 1px solid #d8e1e5;
+  border-radius: 0;
+  background: #fff;
+  color: #24323a;
+  padding: 0 0.4rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pdf-zoom-button:hover:not(:disabled),
+.pdf-zoom-button:focus-visible,
+.pdf-zoom-level:hover:not(:disabled),
+.pdf-zoom-level:focus-visible {
+  background: #eef3f8;
+}
+
+.pdf-zoom-button:disabled,
+.pdf-zoom-level:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.pdf-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #e8eef1;
+  cursor: grab;
+}
+
+.pdf-scroll.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* max-content + min-width lets pages center when narrow and scroll when zoomed wide. */
+.pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  width: max-content;
+  min-width: 100%;
+  padding: 0.75rem 12px;
+}
+
+.pdf-page {
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(17, 38, 45, 0.18);
+}
+
+.pdf-page canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.pdf-loading {
+  margin: 2rem 0;
+  color: #6f8791;
+  text-align: center;
+}
+
+.pdf-viewer-message {
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: #24323a;
+}
+
+.pdf-viewer-message p {
+  margin: 0;
+}
+
+.pdf-viewer-message a {
+  color: #245b67;
+}
+
 .dq-editor-shell {
   width: min(920px, calc(100vw - 2rem));
   border: 1px solid #d8e1e5;
@@ -1643,10 +1834,40 @@ button:focus-visible {
   }
 }
 
+@media (max-width: 960px) {
+  .dq-split {
+    flex-direction: column;
+    gap: 0.75rem;
+    height: auto;
+    min-height: 0;
+  }
+
+  .dq-split-tasks {
+    flex: 0 0 auto;
+    overflow-y: visible;
+  }
+
+  .dq-split .dq-editor-shell {
+    min-height: 0;
+  }
+
+  .dq-split-divider {
+    display: none;
+  }
+
+  .dq-split-pdf {
+    height: 75dvh;
+  }
+}
+
 @media (max-width: 640px) {
   .dq-editor-shell {
     width: calc(100vw - 1rem);
     padding: 0.55rem 0.65rem 0.8rem;
+  }
+
+  .dq-split {
+    width: calc(100vw - 1rem);
   }
 
   .dq-editor-shell h1 {

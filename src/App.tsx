@@ -1,14 +1,21 @@
 import {
   ChangeEvent,
   ClipboardEvent as ReactClipboardEvent,
+  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
   ReactNode,
+  Suspense,
+  lazy,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from 'react';
 import { track, trackError } from './analytics';
+
+// pdf.js is heavy (~600 KB); load it only when the plan page renders.
+const PdfViewer = lazy(() => import('./PdfViewer').then((module) => ({ default: module.PdfViewer })));
 import { flushSync } from 'react-dom';
 import {
   Brain,
@@ -242,6 +249,21 @@ const getLocalDateString = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 const LAST_EXPORT_STORAGE_KEY = 'checklist:lastExportAt';
+
+const PLAN_PDF_URL = `${import.meta.env.BASE_URL}qarmoqlar.pdf`;
+const PLAN_PDF_TITLE = 'Qarmoqlar';
+const PLAN_SPLIT_STORAGE_KEY = 'checklist:planSplitPercent';
+const PLAN_SPLIT_MIN_PERCENT = 25;
+const PLAN_SPLIT_MAX_PERCENT = 75;
+
+const clampPlanSplitPercent = (value: number) =>
+  Math.min(PLAN_SPLIT_MAX_PERCENT, Math.max(PLAN_SPLIT_MIN_PERCENT, value));
+
+const loadPlanSplitPercent = () => {
+  const stored = Number(window.localStorage.getItem(PLAN_SPLIT_STORAGE_KEY));
+
+  return Number.isFinite(stored) && stored > 0 ? clampPlanSplitPercent(stored) : 50;
+};
 
 const autoSizeTextArea = (element: HTMLTextAreaElement) => {
   element.style.height = 'auto';
@@ -967,6 +989,42 @@ const App = () => {
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [editingHistoryTask, setEditingHistoryTask] = useState<HistoryTaskEdit | null>(null);
   const [historyTaskDraft, setHistoryTaskDraft] = useState('');
+  const [planSplitPercent, setPlanSplitPercent] = useState(loadPlanSplitPercent);
+  const [isPlanSplitDragging, setIsPlanSplitDragging] = useState(false);
+  const planSplitRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(PLAN_SPLIT_STORAGE_KEY, String(Math.round(planSplitPercent)));
+  }, [planSplitPercent]);
+
+  const handlePlanSplitPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsPlanSplitDragging(true);
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const container = planSplitRef.current;
+
+      if (!container) {
+        return;
+      }
+
+      const rect = container.getBoundingClientRect();
+
+      if (rect.width > 0) {
+        setPlanSplitPercent(clampPlanSplitPercent(((moveEvent.clientX - rect.left) / rect.width) * 100));
+      }
+    };
+    const handlePointerUp = () => {
+      setIsPlanSplitDragging(false);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+  };
 
   useEffect(
     () => () => {
@@ -3194,7 +3252,13 @@ const App = () => {
 
         {activeView === 'planner' ? (
           <section className="dq-page" aria-labelledby="dq-title">
-            <div className="dq-editor-shell">
+            <div
+              ref={planSplitRef}
+              className={`dq-split${isPlanSplitDragging ? ' is-dragging' : ''}`}
+              style={{ '--dq-split-left': `${planSplitPercent}%` } as CSSProperties}
+            >
+              <div className="dq-split-tasks">
+                <div className="dq-editor-shell">
               <h1 id="dq-title">Daily plan</h1>
               <div
                 ref={divideAndConquerEditorRef}
@@ -3245,6 +3309,42 @@ const App = () => {
                     aria-hidden="true"
                   />
                 </button>
+              </div>
+                </div>
+              </div>
+              <div
+                className="dq-split-divider"
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize task and PDF panels"
+                aria-valuenow={Math.round(planSplitPercent)}
+                aria-valuemin={PLAN_SPLIT_MIN_PERCENT}
+                aria-valuemax={PLAN_SPLIT_MAX_PERCENT}
+                tabIndex={0}
+                onPointerDown={handlePlanSplitPointerDown}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    setPlanSplitPercent((current) =>
+                      clampPlanSplitPercent(current + (event.key === 'ArrowLeft' ? -4 : 4)),
+                    );
+                  }
+                }}
+              >
+                <span className="dq-split-divider-grip" aria-hidden="true" />
+              </div>
+              <div className="dq-split-pdf">
+                <Suspense
+                  fallback={
+                    <div className="pdf-viewer">
+                      <p className="pdf-loading" role="status">
+                        Loading PDF…
+                      </p>
+                    </div>
+                  }
+                >
+                  <PdfViewer src={PLAN_PDF_URL} title={PLAN_PDF_TITLE} />
+                </Suspense>
               </div>
             </div>
           </section>
