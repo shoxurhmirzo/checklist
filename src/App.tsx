@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import posthog from 'posthog-js';
 import { flushSync } from 'react-dom';
 import {
   Brain,
@@ -1845,6 +1846,7 @@ const App = () => {
     setSheets((currentSheets) => [nextSheet, ...currentSheets]);
     setActiveSheetId(nextSheet.id);
     setStatus('New sheet created');
+    posthog.capture('checklist_sheet_created', { sheet_number: nextSheetNumber });
   };
 
   const handleDeleteSheet = (sheetId: string) => {
@@ -1860,6 +1862,7 @@ const App = () => {
       onConfirm: () => {
         setSheets((currentSheets) => currentSheets.filter((sheet) => sheet.id !== sheetId));
         setStatus('Sheet deleted');
+        posthog.capture('checklist_sheet_deleted');
       },
     });
   };
@@ -1882,6 +1885,7 @@ const App = () => {
     const timeStamp = new Date().toISOString().slice(0, 10);
     downloadTextFile(JSON.stringify(payload, null, 2), `checklist-backup-${timeStamp}.json`);
     setStatus('Backup exported');
+    posthog.capture('checklist_exported', { sheet_count: sheets.length });
   };
 
   const handleImportClick = () => {
@@ -1925,6 +1929,7 @@ const App = () => {
       // tasks from being swept into history on the next rollover check.
       setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
       setStatus('Backup imported');
+      posthog.capture('checklist_imported', { sheet_count: normalizedSheets.length });
     } catch {
       window.alert('The selected file is not a valid checklist backup.');
       setStatus('Import failed');
@@ -1965,6 +1970,8 @@ const App = () => {
 
       return [nextRecord, ...recordsWithoutDate].sort((a, b) => b.date.localeCompare(a.date));
     });
+    const field = 'bedtime' in updates ? 'bedtime' : 'wake_time';
+    posthog.capture('sleep_time_logged', { field });
   };
 
   // A day opened via Add starts as a blank record; if it is still blank when its
@@ -2014,6 +2021,7 @@ const App = () => {
         setSleepLogRecords((currentRecords) => currentRecords.filter((record) => record.date !== date));
         setExpandedSleepDate((current) => (current === date ? null : current));
         setStatus('Sleep record deleted');
+        posthog.capture('sleep_record_deleted');
       },
     });
   };
@@ -2152,6 +2160,7 @@ const App = () => {
     setDivideAndConquerItems((currentItems) => reconcileDivideAndConquerItemsWithDraftRows(draftRows, currentItems));
     setActiveView('sortBoard');
     setStatus('Tasks ready to sort');
+    posthog.capture('task_sorting_started', { task_count: taskCount });
   };
 
   const clearMatrixQuadrants = () => {
@@ -2317,6 +2326,7 @@ const App = () => {
     setDraggedTaskId(null);
     setIsCompletedMagnetic(false);
     setStatus('Current focus set');
+    posthog.capture('task_set_as_focus');
   };
 
   const completeCurrentFocusTask = () => {
@@ -2335,6 +2345,7 @@ const App = () => {
     );
     setCurrentFocusTaskId(null);
     setStatus('Task completed');
+    posthog.capture('task_completed', { completion_method: 'focus_button' });
   };
 
   const clearCurrentFocusTask = () => {
@@ -2401,6 +2412,7 @@ const App = () => {
     if (bucket === 'completed') {
       if (movingTask.bucket !== 'completed') {
         showCompletedDropFeedback(todayCompletedTasks.length + 1);
+        posthog.capture('task_completed', { completion_method: 'drag_and_drop' });
       }
       setStatus('Task completed');
     }
@@ -3581,11 +3593,13 @@ const SectionBlock = ({
   const handleMarkDone = (rowId: string, columnIndex: number) => {
     onMarkDone(rowId, columnIndex);
     setOpenMenuCell(null);
+    posthog.capture('checklist_row_marked', { mark: 'plus', section_id: section.id });
   };
 
   const handleMarkUndone = (rowId: string, columnIndex: number) => {
     onMarkUndone(rowId, columnIndex);
     setOpenMenuCell(null);
+    posthog.capture('checklist_row_marked', { mark: 'minus', section_id: section.id });
   };
 
   const handleClearMark = (rowId: string, columnIndex: number) => {
@@ -3609,6 +3623,7 @@ const SectionBlock = ({
 
     onAddRow(label);
     setNewRowLabel('');
+    posthog.capture('checklist_row_added', { section_id: section.id });
   };
 
   const handleNewRowKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
