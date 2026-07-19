@@ -16,8 +16,10 @@ const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
 const LEGACY_SHEETS_STORE_KEY = 'sheets';
 const APP_STATE_STORE_KEY = 'state';
-const BACKUP_VERSION = 8;
-const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, 7, BACKUP_VERSION];
+const BACKUP_VERSION = 9;
+const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, 7, 8, BACKUP_VERSION];
+
+export const MAX_CURRENT_FOCUS_TASKS = 2;
 
 export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
 export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
@@ -151,8 +153,13 @@ const normalizeDivideAndConquerItems = (value: unknown): DivideAndConquerTask[] 
     }));
 };
 
-export const normalizeCurrentFocusTaskId = (value: unknown, items: DivideAndConquerTask[]) =>
-  typeof value === 'string' && items.some((item) => item.id === value) ? value : null;
+// Accepts both the current array shape and the single-id string that
+// version-8-and-earlier data stored.
+export const normalizeCurrentFocusTaskIds = (value: unknown, items: DivideAndConquerTask[]): string[] =>
+  (Array.isArray(value) ? value : [value])
+    .filter((id): id is string => typeof id === 'string' && items.some((item) => item.id === id))
+    .filter((id, index, ids) => ids.indexOf(id) === index)
+    .slice(0, MAX_CURRENT_FOCUS_TASKS);
 
 const LOCAL_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_TIME_PATTERN = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
@@ -285,7 +292,7 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
       sheets: normalizeSavedSheets(value as ChecklistSheet[]),
       divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
       divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
-      currentFocusTaskId: null,
+      currentFocusTaskIds: [],
       dailyHistory: [],
       sleepLogRecords: [],
       ideas: [],
@@ -298,7 +305,7 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
     return null;
   }
 
-  const state = value as Partial<AppState>;
+  const state = value as Partial<AppState> & { currentFocusTaskId?: unknown };
 
   if (!Array.isArray(state.sheets)) {
     return null;
@@ -310,7 +317,10 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
     sheets: normalizeSavedSheets(state.sheets),
     divideAndConquerText: normalizeDivideAndConquerText(state.divideAndConquerText),
     divideAndConquerItems,
-    currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
+    currentFocusTaskIds: normalizeCurrentFocusTaskIds(
+      state.currentFocusTaskIds ?? state.currentFocusTaskId,
+      divideAndConquerItems,
+    ),
     dailyHistory: normalizeDailyHistory(state.dailyHistory),
     sleepLogRecords: normalizeSleepLogRecords(state.sleepLogRecords),
     ideas: normalizeIdeas(state.ideas),
@@ -323,7 +333,7 @@ const createDefaultAppState = (): AppState => ({
   sheets: [createSheet('Checklist 1')],
   divideAndConquerText: DEFAULT_DIVIDE_AND_CONQUER_TEXT,
   divideAndConquerItems: DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
-  currentFocusTaskId: null,
+  currentFocusTaskIds: [],
   dailyHistory: [],
   sleepLogRecords: [],
   ideas: [],
@@ -412,7 +422,7 @@ export const saveAppState = async (state: AppState): Promise<void> =>
       sheets: normalizeSavedSheets(state.sheets),
       divideAndConquerText: state.divideAndConquerText,
       divideAndConquerItems,
-      currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, divideAndConquerItems),
+      currentFocusTaskIds: normalizeCurrentFocusTaskIds(state.currentFocusTaskIds, divideAndConquerItems),
       dailyHistory: normalizeDailyHistory(state.dailyHistory),
       sleepLogRecords: normalizeSleepLogRecords(state.sleepLogRecords),
       ideas: normalizeIdeas(state.ideas),
@@ -431,7 +441,7 @@ export const createBackupPayload = (state: AppState): BackupPayload => ({
   sheets: state.sheets,
   divideAndConquerText: state.divideAndConquerText,
   divideAndConquerItems: state.divideAndConquerItems,
-  currentFocusTaskId: normalizeCurrentFocusTaskId(state.currentFocusTaskId, state.divideAndConquerItems),
+  currentFocusTaskIds: normalizeCurrentFocusTaskIds(state.currentFocusTaskIds, state.divideAndConquerItems),
   dailyHistory: state.dailyHistory,
   sleepLogRecords: state.sleepLogRecords,
   ideas: state.ideas,
@@ -474,6 +484,9 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
     (payload.currentFocusTaskId === undefined ||
       payload.currentFocusTaskId === null ||
       typeof payload.currentFocusTaskId === 'string') &&
+    (payload.currentFocusTaskIds === undefined ||
+      (Array.isArray(payload.currentFocusTaskIds) &&
+        payload.currentFocusTaskIds.every((id) => typeof id === 'string'))) &&
     (payload.lastRolloverDate === undefined ||
       payload.lastRolloverDate === null ||
       typeof payload.lastRolloverDate === 'string') &&

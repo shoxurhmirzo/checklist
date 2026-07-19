@@ -34,6 +34,7 @@ import {
   Sunset,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 import {
   COLUMN_COUNT,
@@ -49,7 +50,8 @@ import {
   createBackupPayload,
   isValidBackupPayload,
   loadAppState,
-  normalizeCurrentFocusTaskId,
+  MAX_CURRENT_FOCUS_TASKS,
+  normalizeCurrentFocusTaskIds,
   normalizeDailyHistory,
   normalizeIdeaPlaces,
   normalizeIdeas,
@@ -824,7 +826,7 @@ const SleepDateChanger = ({ label, value, maxDate, onSelect }: SleepDateChangerP
 
 interface DailyRolloverSlice {
   divideAndConquerItems: DivideAndConquerTask[];
-  currentFocusTaskId: string | null;
+  currentFocusTaskIds: string[];
   dailyHistory: DailyHistoryRecord[];
   lastRolloverDate: string | null;
 }
@@ -863,7 +865,7 @@ const applyDailyRollover = (
       divideAndConquerItems: slice.divideAndConquerItems
         .filter((item) => item.bucket !== 'completed')
         .map((item) => ({ ...item, bucket: 'unassigned' as const })),
-      currentFocusTaskId: null,
+      currentFocusTaskIds: [],
       dailyHistory: record ? [record, ...slice.dailyHistory] : slice.dailyHistory,
       lastRolloverDate: today,
     },
@@ -903,7 +905,7 @@ const App = () => {
   const [divideAndConquerItems, setDivideAndConquerItems] = useState<DivideAndConquerTask[]>(
     DEFAULT_DIVIDE_AND_CONQUER_ITEMS,
   );
-  const [currentFocusTaskId, setCurrentFocusTaskId] = useState<string | null>(null);
+  const [currentFocusTaskIds, setCurrentFocusTaskIds] = useState<string[]>([]);
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
   const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
   const [expandedSleepDate, setExpandedSleepDate] = useState<string | null>(null);
@@ -935,7 +937,7 @@ const App = () => {
   const saveFeedbackTimeoutRef = useRef<number | null>(null);
   const rolloverCheckRef = useRef<() => void>(() => {});
   const historyReturnViewRef = useRef<AppView>('checklist');
-  const focusSetAtRef = useRef<number | null>(null);
+  const focusSetAtByTaskIdRef = useRef(new Map<string, number>());
 
   // pushState (not location.hash) so PostHog's history_change pageview
   // capture sees every view switch; popstate covers back/forward.
@@ -1266,14 +1268,14 @@ const App = () => {
         const rolled = applyDailyRollover(
           {
             divideAndConquerItems: storedState.divideAndConquerItems,
-            currentFocusTaskId: storedState.currentFocusTaskId,
+            currentFocusTaskIds: storedState.currentFocusTaskIds,
             dailyHistory: storedState.dailyHistory,
             lastRolloverDate: storedState.lastRolloverDate,
           },
           getLocalDateString(),
         );
         setDivideAndConquerItems(rolled.slice.divideAndConquerItems);
-        setCurrentFocusTaskId(rolled.slice.currentFocusTaskId);
+        setCurrentFocusTaskIds(rolled.slice.currentFocusTaskIds);
         setDailyHistory(rolled.slice.dailyHistory);
         setSleepLogRecords(storedState.sleepLogRecords);
         setIdeas(storedState.ideas);
@@ -1328,7 +1330,7 @@ const App = () => {
       sheets,
       divideAndConquerText,
       divideAndConquerItems,
-      currentFocusTaskId,
+      currentFocusTaskIds,
       dailyHistory,
       sleepLogRecords,
       ideas,
@@ -1360,7 +1362,7 @@ const App = () => {
 
     return () => window.clearTimeout(timeoutId);
   }, [
-    currentFocusTaskId,
+    currentFocusTaskIds,
     dailyHistory,
     divideAndConquerItems,
     divideAndConquerText,
@@ -1411,7 +1413,7 @@ const App = () => {
     rolloverCheckRef.current = () => {
       const previousRolloverDate = lastRolloverDate;
       const result = applyDailyRollover(
-        { divideAndConquerItems, currentFocusTaskId, dailyHistory, lastRolloverDate },
+        { divideAndConquerItems, currentFocusTaskIds, dailyHistory, lastRolloverDate },
         getLocalDateString(),
       );
 
@@ -1420,7 +1422,7 @@ const App = () => {
       }
 
       setDivideAndConquerItems(result.slice.divideAndConquerItems);
-      setCurrentFocusTaskId(result.slice.currentFocusTaskId);
+      setCurrentFocusTaskIds(result.slice.currentFocusTaskIds);
       setDailyHistory(result.slice.dailyHistory);
       setLastRolloverDate(result.slice.lastRolloverDate);
       if (result.completedTexts.length > 0) {
@@ -1442,7 +1444,7 @@ const App = () => {
         });
       }
     };
-  }, [currentFocusTaskId, dailyHistory, divideAndConquerItems, lastRolloverDate]);
+  }, [currentFocusTaskIds, dailyHistory, divideAndConquerItems, lastRolloverDate]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -1545,12 +1547,13 @@ const App = () => {
     )
     : { plus: 0, minus: 0 };
 
-  const currentFocusTask = currentFocusTaskId
-    ? divideAndConquerItems.find((item) => item.id === currentFocusTaskId) ?? null
-    : null;
-  const visibleDivideAndConquerItems = currentFocusTaskId
-    ? divideAndConquerItems.filter((item) => item.id !== currentFocusTaskId)
-    : divideAndConquerItems;
+  const currentFocusTasks = currentFocusTaskIds
+    .map((taskId) => divideAndConquerItems.find((item) => item.id === taskId))
+    .filter((item): item is DivideAndConquerTask => item !== undefined);
+  const visibleDivideAndConquerItems =
+    currentFocusTaskIds.length > 0
+      ? divideAndConquerItems.filter((item) => !currentFocusTaskIds.includes(item.id))
+      : divideAndConquerItems;
   const divideAndConquerBuckets = {
     unassigned: visibleDivideAndConquerItems.filter((item) => item.bucket === 'unassigned'),
     'productive-attractive': visibleDivideAndConquerItems.filter((item) => item.bucket === 'productive-attractive'),
@@ -1741,15 +1744,17 @@ const App = () => {
   const hasMatrixQuadrantTasks = DIVIDE_AND_CONQUER_QUADRANT_BUCKETS.some(
     (bucket) => divideAndConquerBuckets[bucket].length > 0,
   );
-  const hasSortableStateToClear = hasMatrixQuadrantTasks || currentFocusTask !== null;
+  const hasSortableStateToClear = hasMatrixQuadrantTasks || currentFocusTasks.length > 0;
 
   useEffect(() => {
-    if (!currentFocusTaskId || currentFocusTask) {
+    if (currentFocusTaskIds.length === currentFocusTasks.length) {
       return;
     }
 
-    setCurrentFocusTaskId(null);
-  }, [currentFocusTask, currentFocusTaskId]);
+    setCurrentFocusTaskIds((taskIds) =>
+      taskIds.filter((taskId) => divideAndConquerItems.some((item) => item.id === taskId)),
+    );
+  }, [currentFocusTaskIds, currentFocusTasks.length, divideAndConquerItems]);
 
   useLayoutEffect(() => {
     if (activeView !== 'sortBoard') {
@@ -1761,7 +1766,7 @@ const App = () => {
     return () => {
       window.cancelAnimationFrame(animationFrame);
     };
-  }, [activeView, currentFocusTaskId, divideAndConquerItems, editingDivideAndConquerTaskId]);
+  }, [activeView, currentFocusTaskIds, divideAndConquerItems, editingDivideAndConquerTaskId]);
 
   useEffect(() => {
     if (activeView !== 'sortBoard') {
@@ -1816,8 +1821,8 @@ const App = () => {
       setEditingDivideAndConquerTaskId(null);
     }
 
-    if (currentFocusTaskId === taskId) {
-      setCurrentFocusTaskId(null);
+    if (currentFocusTaskIds.includes(taskId)) {
+      setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
     }
   };
 
@@ -2052,7 +2057,7 @@ const App = () => {
       sheets,
       divideAndConquerText,
       divideAndConquerItems,
-      currentFocusTaskId,
+      currentFocusTaskIds,
       dailyHistory,
       sleepLogRecords,
       ideas,
@@ -2105,7 +2110,12 @@ const App = () => {
         ? parsed.divideAndConquerItems
         : DEFAULT_DIVIDE_AND_CONQUER_ITEMS;
       setDivideAndConquerItems(nextDivideAndConquerItems);
-      setCurrentFocusTaskId(normalizeCurrentFocusTaskId(parsed.currentFocusTaskId, nextDivideAndConquerItems));
+      setCurrentFocusTaskIds(
+        normalizeCurrentFocusTaskIds(
+          parsed.currentFocusTaskIds ?? parsed.currentFocusTaskId,
+          nextDivideAndConquerItems,
+        ),
+      );
       setDailyHistory(normalizeDailyHistory(parsed.dailyHistory));
       setSleepLogRecords(normalizeSleepLogRecords(parsed.sleepLogRecords));
       setIdeas(normalizeIdeas(parsed.ideas));
@@ -2545,12 +2555,13 @@ const App = () => {
   const clearMatrixQuadrants = () => {
     setDivideAndConquerItems((currentItems) =>
       currentItems.map((item) =>
-        item.id === currentFocusTaskId || isDivideAndConquerQuadrantBucket(item.bucket)
+        currentFocusTaskIds.includes(item.id) || isDivideAndConquerQuadrantBucket(item.bucket)
           ? { ...item, bucket: 'unassigned' }
           : item,
       ),
     );
-    setCurrentFocusTaskId(null);
+    setCurrentFocusTaskIds([]);
+    focusSetAtByTaskIdRef.current.clear();
     setDraggedTaskId(null);
     setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
@@ -2624,6 +2635,11 @@ const App = () => {
       track('task_moved_to_quadrant', { bucket, from_bucket: priorTask.bucket });
     }
 
+    // Dragging a focused task into any bucket takes it out of the focus area;
+    // it can't sit in both places at once.
+    setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
+    focusSetAtByTaskIdRef.current.delete(taskId);
+
     setDivideAndConquerItems((currentItems) => {
       const movingTask = currentItems.find((item) => item.id === taskId);
 
@@ -2693,60 +2709,74 @@ const App = () => {
       return;
     }
 
-    const previousFocusTask = currentFocusTaskId
-      ? divideAndConquerItems.find((item) => item.id === currentFocusTaskId)
+    setDraggedTaskId(null);
+    setIsCompletedMagnetic(false);
+
+    if (currentFocusTaskIds.includes(taskId)) {
+      return;
+    }
+
+    // The area holds up to two tasks; a drop beyond that completes the oldest
+    // focus to make room, matching the single-focus replace behavior.
+    const displacedTaskId =
+      currentFocusTaskIds.length >= MAX_CURRENT_FOCUS_TASKS ? currentFocusTaskIds[0] : null;
+    const displacedTask = displacedTaskId
+      ? divideAndConquerItems.find((item) => item.id === displacedTaskId)
       : null;
 
-    if (previousFocusTask && previousFocusTask.id !== taskId && previousFocusTask.bucket !== 'completed') {
+    if (displacedTask && displacedTask.bucket !== 'completed') {
       showCompletedDropFeedback(todayCompletedTasks.length + 1);
     }
 
-    setDivideAndConquerItems((currentItems) =>
-      currentItems.map((item) =>
-        currentFocusTaskId && item.id === currentFocusTaskId && item.id !== taskId
-          ? { ...item, bucket: 'completed' }
-          : item,
-      ),
+    if (displacedTaskId) {
+      setDivideAndConquerItems((currentItems) =>
+        currentItems.map((item) =>
+          item.id === displacedTaskId ? { ...item, bucket: 'completed' } : item,
+        ),
+      );
+      focusSetAtByTaskIdRef.current.delete(displacedTaskId);
+    }
+
+    setCurrentFocusTaskIds((taskIds) =>
+      [...taskIds.filter((id) => id !== displacedTaskId), taskId].slice(-MAX_CURRENT_FOCUS_TASKS),
     );
-    setCurrentFocusTaskId(taskId);
-    focusSetAtRef.current = Date.now();
-    setDraggedTaskId(null);
-    setIsCompletedMagnetic(false);
+    focusSetAtByTaskIdRef.current.set(taskId, Date.now());
     setStatus('Current focus set');
     track('task_set_as_focus');
   };
 
-  const completeCurrentFocusTask = () => {
-    if (!currentFocusTaskId) {
+  const completeFocusTask = (taskId: string) => {
+    if (!currentFocusTaskIds.includes(taskId)) {
       return;
     }
 
-    const focusTask = divideAndConquerItems.find((item) => item.id === currentFocusTaskId);
+    const focusTask = divideAndConquerItems.find((item) => item.id === taskId);
 
     if (focusTask && focusTask.bucket !== 'completed') {
       showCompletedDropFeedback(todayCompletedTasks.length + 1);
     }
 
     setDivideAndConquerItems((currentItems) =>
-      currentItems.map((item) => (item.id === currentFocusTaskId ? { ...item, bucket: 'completed' } : item)),
+      currentItems.map((item) => (item.id === taskId ? { ...item, bucket: 'completed' } : item)),
     );
-    setCurrentFocusTaskId(null);
+    setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
     setStatus('Task completed');
-    const focusSetAt = focusSetAtRef.current;
-    focusSetAtRef.current = null;
+    const focusSetAt = focusSetAtByTaskIdRef.current.get(taskId);
+    focusSetAtByTaskIdRef.current.delete(taskId);
     track('task_completed', {
       completion_method: 'focus_button',
       // Only meaningful when focus was set this session; persisted focus has no timestamp.
-      ...(focusSetAt !== null ? { seconds_since_focus: Math.round((Date.now() - focusSetAt) / 1000) } : {}),
+      ...(focusSetAt !== undefined ? { seconds_since_focus: Math.round((Date.now() - focusSetAt) / 1000) } : {}),
     });
   };
 
-  const clearCurrentFocusTask = () => {
-    if (!currentFocusTaskId) {
+  const clearFocusTask = (taskId: string) => {
+    if (!currentFocusTaskIds.includes(taskId)) {
       return;
     }
 
-    setCurrentFocusTaskId(null);
+    setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
+    focusSetAtByTaskIdRef.current.delete(taskId);
     setStatus('Current focus cleared');
   };
 
@@ -3359,7 +3389,7 @@ const App = () => {
                 <h1 id="sort-board-title">Prioritize your day</h1>
                 <div className="sort-board-intro-actions">
                   <p
-                    className={`sort-focus-line ${currentFocusTask ? 'has-focus' : ''} ${
+                    className={`sort-focus-line ${currentFocusTasks.length > 0 ? 'has-focus' : ''} ${
                       draggedTaskId ? 'drop-ready' : ''
                     }`}
                     onDragOver={handleDivideAndConquerDragOver}
@@ -3367,32 +3397,79 @@ const App = () => {
                     aria-live="polite"
                   >
                     <span className="sort-focus-label">Main task now:</span>
-                    <span className="sort-focus-text">{currentFocusTask?.text || 'drag a task here.'}</span>
+                    {currentFocusTasks.length > 0 ? (
+                      currentFocusTasks.map((task) =>
+                        editingDivideAndConquerTaskId === task.id ? (
+                          <span key={task.id} className="sort-focus-item">
+                            <input
+                              className="sort-focus-input"
+                              value={task.text}
+                              aria-label="Edit focus task"
+                              autoFocus
+                              onChange={(event) => updateDivideAndConquerTaskText(task.id, event.target.value)}
+                              onBlur={() => setEditingDivideAndConquerTaskId(null)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' || event.key === 'Escape') {
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                            />
+                          </span>
+                        ) : (
+                          <span
+                            key={task.id}
+                            className={`sort-focus-item ${draggedTaskId === task.id ? 'dragging' : ''}`}
+                            draggable
+                            onDragStart={(event) => handleDivideAndConquerDragStart(event, task.id)}
+                            onDragEnd={handleDivideAndConquerDragEnd}
+                          >
+                            <span className="sort-focus-text" title={task.text}>
+                              {task.text}
+                            </span>
+                            <span className="sort-focus-actions" aria-label={`Focus actions for ${task.text}`}>
+                              <button
+                                type="button"
+                                className="sort-focus-action-button edit"
+                                onClick={() => setEditingDivideAndConquerTaskId(task.id)}
+                                onDragStart={(event) => event.preventDefault()}
+                                aria-label={`Edit focus task ${task.text}`}
+                                title="Edit this focus task"
+                              >
+                                <Pencil className="sort-focus-action-icon" size={14} strokeWidth={2} aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                className="sort-focus-action-button complete"
+                                onClick={() => completeFocusTask(task.id)}
+                                onDragStart={(event) => event.preventDefault()}
+                                aria-label={`Complete focus task ${task.text}`}
+                                title="Complete this focus task"
+                              >
+                                <Check className="sort-focus-action-icon" size={15} strokeWidth={2.4} aria-hidden="true" />
+                              </button>
+                              <button
+                                type="button"
+                                className="sort-focus-action-button clear"
+                                onClick={() => clearFocusTask(task.id)}
+                                onDragStart={(event) => event.preventDefault()}
+                                aria-label={`Clear focus task ${task.text}`}
+                                title="Clear this focus task"
+                              >
+                                <X className="sort-focus-action-icon" size={15} strokeWidth={2.4} aria-hidden="true" />
+                              </button>
+                            </span>
+                          </span>
+                        ),
+                      )
+                    ) : (
+                      <span className="sort-focus-text">drag a task here.</span>
+                    )}
+                    {draggedTaskId &&
+                    currentFocusTasks.length > 0 &&
+                    currentFocusTasks.length < MAX_CURRENT_FOCUS_TASKS ? (
+                      <span className="sort-focus-hint">drop a second task here.</span>
+                    ) : null}
                   </p>
-                  {currentFocusTask ? (
-                    <span className="sort-focus-actions" aria-label="Current focus actions">
-                      <button
-                        type="button"
-                        className="sort-focus-action-button complete"
-                        onClick={completeCurrentFocusTask}
-                        onDragStart={(event) => event.preventDefault()}
-                        aria-label="Complete current focus"
-                        title="Complete current focus"
-                      >
-                        <span aria-hidden="true">✓</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="sort-focus-action-button clear"
-                        onClick={clearCurrentFocusTask}
-                        onDragStart={(event) => event.preventDefault()}
-                        aria-label="Clear current focus"
-                        title="Clear current focus"
-                      >
-                        <span aria-hidden="true">×</span>
-                      </button>
-                    </span>
-                  ) : null}
                 </div>
               </div>
 

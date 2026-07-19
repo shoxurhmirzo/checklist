@@ -1124,38 +1124,49 @@ button:focus-visible {
 }
 
 .sort-board-toolbar {
+  /* Overlays the matrix header row so the quadrants top-align with the
+     Tasks panel instead of sitting a toolbar-row lower. */
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
   display: flex;
   justify-content: flex-end;
-  min-height: 1.45rem;
-  margin: 0 0 0.25rem;
   padding-right: 0.25rem;
 }
 
 .sort-focus-line {
   display: inline-flex;
-  align-items: baseline;
+  flex-direction: column;
+  align-items: stretch;
   justify-content: center;
-  gap: 0.25rem;
+  gap: 0.45rem;
   max-width: min(760px, calc(100vw - 2rem));
-  min-width: 0;
+  min-width: min(420px, calc(100vw - 2rem));
+  min-height: 3.6rem;
   margin: 0.35rem 0 0;
-  padding: 0.05rem 0.15rem 0.08rem;
-  border-bottom: 1px dashed transparent;
-  line-height: 1.25;
+  padding: 0.6rem 0.85rem 0.65rem;
+  border: 1px solid #d8dde2;
+  background: #f6f9fc;
+  line-height: 1.3;
+  text-align: left;
   transition:
     background-color 140ms ease,
     border-color 140ms ease;
 }
 
 .sort-focus-line.drop-ready {
-  border-bottom-color: #245b67;
-  background: #eef3f8;
+  border-color: #6fa6b1;
+  background: #f2f7f9;
+  outline: 1px solid rgba(111, 166, 177, 0.35);
+  outline-offset: -2px;
 }
 
 .sort-focus-label {
   flex: 0 0 auto;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: #111;
+  color: #274b5a;
 }
 
 .sort-focus-text {
@@ -1163,9 +1174,50 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
+.sort-focus-line:not(.has-focus) .sort-focus-text {
+  color: #778;
+  font-style: italic;
+}
+
 .sort-focus-line.has-focus .sort-focus-text {
   color: #111;
-  font-weight: 600;
+}
+
+.sort-focus-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  min-height: 42px;
+  border: 1px solid #161616;
+  background: #fff;
+  padding: 0.38rem 0.5rem;
+  cursor: grab;
+}
+
+.sort-focus-item.dragging {
+  opacity: 0.82;
+  cursor: grabbing;
+  background: #f8fafc;
+}
+
+.sort-focus-item .sort-focus-text {
+  flex: 1 1 auto;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.sort-focus-item .sort-focus-actions {
+  flex: 0 0 auto;
+}
+
+.sort-focus-hint {
+  flex: 0 0 auto;
+  color: #778;
+  font-size: 0.85rem;
+  font-style: italic;
 }
 
 .sort-clear-all-button,
@@ -1203,34 +1255,37 @@ button:focus-visible {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.55rem;
-  min-width: 1.55rem;
-  height: 1.55rem;
-  border: 1px solid #245b67;
+  width: 1.65rem;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  border: 1px solid #161616;
+  border-radius: 0;
   background: #fff;
-  line-height: 1;
+  color: #111;
+  line-height: 1.1;
   text-decoration: none;
   box-shadow: none;
 }
 
-.sort-focus-action-button.complete {
-  color: #2f6f45;
-  border-color: #2f6f45;
+.sort-focus-action-button.edit:hover {
+  background: #eef3f8;
+  border-color: #000;
 }
 
-.sort-focus-action-button.clear {
-  color: #8d4f4f;
-  border-color: #8d4f4f;
+.sort-focus-action-icon {
+  display: block;
 }
 
-.sort-focus-action-button.complete:hover {
-  background: #eef8f0;
-  color: #245b35;
-}
-
-.sort-focus-action-button.clear:hover {
-  background: #faf0f0;
-  color: #6f3737;
+.sort-focus-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #111;
+  font: inherit;
+  padding: 0;
+  outline: 0;
+  cursor: text;
 }
 
 .sort-board-layout {
@@ -1242,6 +1297,7 @@ button:focus-visible {
 }
 
 .sort-matrix-and-completion {
+  position: relative;
   min-width: 0;
 }
 

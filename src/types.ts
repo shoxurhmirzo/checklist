@@ -73,7 +73,7 @@ export interface AppState {
   sheets: ChecklistSheet[];
   divideAndConquerText: string;
   divideAndConquerItems: DivideAndConquerTask[];
-  currentFocusTaskId: string | null;
+  currentFocusTaskIds: string[];
   dailyHistory: DailyHistoryRecord[];
   sleepLogRecords: SleepLogRecord[];
   ideas: IdeaRecord[];
@@ -87,7 +87,9 @@ export interface BackupPayload {
   sheets: ChecklistSheet[];
   divideAndConquerText?: string;
   divideAndConquerItems?: DivideAndConquerTask[];
+  /** Single-focus field written by backups up to version 8. */
   currentFocusTaskId?: string | null;
+  currentFocusTaskIds?: string[];
   dailyHistory?: DailyHistoryRecord[];
   sleepLogRecords?: SleepLogRecord[];
   ideas?: IdeaRecord[];
