@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import posthog from 'posthog-js';
+import { track, trackError } from './analytics';
 import { flushSync } from 'react-dom';
 import {
   Brain,
@@ -75,6 +75,25 @@ const TaskSorterMenuIcon = () => (
 
 
 type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'sleepLog';
+
+// Views live in the URL hash so deep links and the back button work on GitHub
+// Pages, and every switch registers as a PostHog $pageview via pushState.
+const VIEW_HASHES: Record<AppView, string> = {
+  checklist: '#/',
+  planner: '#/plan',
+  sortBoard: '#/sort',
+  history: '#/history',
+  sleepLog: '#/sleep',
+};
+
+const parseViewFromHash = (hash: string): AppView => {
+  const match = (Object.entries(VIEW_HASHES) as [AppView, string][]).find(
+    ([, viewHash]) => viewHash === hash,
+  );
+
+  return match?.[0] ?? 'checklist';
+};
+
 type PersistenceFeedback = 'idle' | 'loading' | 'saving' | 'saved';
 type DivideAndConquerQuadrantBucket = Exclude<DivideAndConquerBucket, 'unassigned' | 'completed'>;
 type DivideAndConquerDropPlacement = 'before' | 'after';
@@ -217,6 +236,14 @@ const reconcileDivideAndConquerItemsWithDraftRows = (
 
 const getLocalDateString = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const LAST_EXPORT_STORAGE_KEY = 'checklist:lastExportAt';
+
+const daysAgoFromToday = (date: string) =>
+  Math.round(
+    (new Date(`${getLocalDateString()}T00:00:00`).getTime() - new Date(`${date}T00:00:00`).getTime()) /
+      (24 * 60 * 60 * 1000),
+  );
 
 const formatHistoryDate = (date: string) =>
   new Intl.DateTimeFormat(undefined, {
@@ -815,7 +842,7 @@ const removeTextsFromDraftRows = (rows: DivideAndConquerDraftRow[], texts: strin
 const App = () => {
   const [sheets, setSheets] = useState<ChecklistSheet[]>([]);
   const [activeSheetId, setActiveSheetId] = useState<string>('');
-  const [activeView, setActiveView] = useState<AppView>('checklist');
+  const [activeView, setActiveView] = useState<AppView>(() => parseViewFromHash(window.location.hash));
   const [divideAndConquerText, setDivideAndConquerText] = useState(DEFAULT_DIVIDE_AND_CONQUER_TEXT);
   const [divideAndConquerDraftRows, setDivideAndConquerDraftRows] = useState<DivideAndConquerDraftRow[]>(() =>
     parseDivideAndConquerDraftRows(DEFAULT_DIVIDE_AND_CONQUER_TEXT),
@@ -843,6 +870,31 @@ const App = () => {
   const saveFeedbackTimeoutRef = useRef<number | null>(null);
   const rolloverCheckRef = useRef<() => void>(() => {});
   const historyReturnViewRef = useRef<AppView>('checklist');
+  const focusSetAtRef = useRef<number | null>(null);
+
+  // pushState (not location.hash) so PostHog's history_change pageview
+  // capture sees every view switch; popstate covers back/forward.
+  const navigateToView = (view: AppView) => {
+    if (view === activeView) {
+      return;
+    }
+
+    setActiveView(view);
+    window.history.pushState(null, '', VIEW_HASHES[view]);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveView(parseViewFromHash(window.location.hash));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
+
   const [status, setStatus] = useState('Loading checklist...');
   const [isSheetMenuOpen, setIsSheetMenuOpen] = useState(false);
   const [isPlanMenuOpen, setIsPlanMenuOpen] = useState(false);
@@ -980,8 +1032,10 @@ const App = () => {
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
+        track('checklist_fullscreen_toggled', { entering: false });
       } else {
         await wrapper.requestFullscreen();
+        track('checklist_fullscreen_toggled', { entering: true });
       }
     } catch {
       setStatus('Fullscreen is not available in this browser');
@@ -1122,6 +1176,13 @@ const App = () => {
         setDailyHistory(rolled.slice.dailyHistory);
         setSleepLogRecords(storedState.sleepLogRecords);
         setLastRolloverDate(rolled.slice.lastRolloverDate);
+        // First-ever launch also reports didRollover; only a real day change counts.
+        if (rolled.didRollover && storedState.lastRolloverDate !== null) {
+          track('daily_rollover', {
+            completed_count: rolled.completedTexts.length,
+            undone_count: storedState.divideAndConquerItems.filter((item) => item.bucket !== 'completed').length,
+          });
+        }
         if (rolled.completedTexts.length > 0) {
           commitDivideAndConquerDraftRows(
             removeTextsFromDraftRows(divideAndConquerDraftRowsRef.current, rolled.completedTexts),
@@ -1129,11 +1190,12 @@ const App = () => {
         }
         setStatus('Checklist loaded');
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (cancelled) {
           return;
         }
 
+        trackError(error, { stage: 'load_app_state' });
         const fallback = [createSheet('Checklist 1')];
         setSheets(fallback);
         setActiveSheetId(fallback[0].id);
@@ -1267,6 +1329,10 @@ const App = () => {
 
       if (previousRolloverDate !== null) {
         setStatus('New day — task list renewed');
+        track('daily_rollover', {
+          completed_count: result.completedTexts.length,
+          undone_count: divideAndConquerItems.filter((item) => item.bucket !== 'completed').length,
+        });
       }
     };
   }, [currentFocusTaskId, dailyHistory, divideAndConquerItems, lastRolloverDate]);
@@ -1440,6 +1506,7 @@ const App = () => {
       }),
     );
     setStatus('Past task marked complete');
+    track('history_task_completed', { days_ago: daysAgoFromToday(date) });
   };
 
   const startHistoryTaskEdit = (
@@ -1478,6 +1545,7 @@ const App = () => {
     setEditingHistoryTask(null);
     setHistoryTaskDraft('');
     setStatus('Past task updated');
+    track('history_task_edited', { days_ago: daysAgoFromToday(editingHistoryTask.date) });
   };
 
   const handleHistoryEditKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -1846,7 +1914,7 @@ const App = () => {
     setSheets((currentSheets) => [nextSheet, ...currentSheets]);
     setActiveSheetId(nextSheet.id);
     setStatus('New sheet created');
-    posthog.capture('checklist_sheet_created', { sheet_number: nextSheetNumber });
+    track('checklist_sheet_created', { sheet_number: nextSheetNumber });
   };
 
   const handleDeleteSheet = (sheetId: string) => {
@@ -1862,14 +1930,14 @@ const App = () => {
       onConfirm: () => {
         setSheets((currentSheets) => currentSheets.filter((sheet) => sheet.id !== sheetId));
         setStatus('Sheet deleted');
-        posthog.capture('checklist_sheet_deleted');
+        track('checklist_sheet_deleted');
       },
     });
   };
 
   const openHistoryView = () => {
     historyReturnViewRef.current = activeView;
-    setActiveView('history');
+    navigateToView('history');
   };
 
   const handleExport = () => {
@@ -1885,7 +1953,13 @@ const App = () => {
     const timeStamp = new Date().toISOString().slice(0, 10);
     downloadTextFile(JSON.stringify(payload, null, 2), `checklist-backup-${timeStamp}.json`);
     setStatus('Backup exported');
-    posthog.capture('checklist_exported', { sheet_count: sheets.length });
+    // localStorage, not AppState: a tracking timestamp doesn't belong in backups.
+    const lastExportDate = window.localStorage.getItem(LAST_EXPORT_STORAGE_KEY);
+    track('checklist_exported', {
+      sheet_count: sheets.length,
+      days_since_last_export: lastExportDate ? daysAgoFromToday(lastExportDate) : null,
+    });
+    window.localStorage.setItem(LAST_EXPORT_STORAGE_KEY, getLocalDateString());
   };
 
   const handleImportClick = () => {
@@ -1929,10 +2003,11 @@ const App = () => {
       // tasks from being swept into history on the next rollover check.
       setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
       setStatus('Backup imported');
-      posthog.capture('checklist_imported', { sheet_count: normalizedSheets.length });
+      track('checklist_imported', { sheet_count: normalizedSheets.length });
     } catch {
       window.alert('The selected file is not a valid checklist backup.');
       setStatus('Import failed');
+      track('import_failed');
     } finally {
       event.target.value = '';
     }
@@ -1945,6 +2020,16 @@ const App = () => {
       return;
     }
 
+    if (activeSheet && (activeSheet.selectedYear !== parsedMonth.year || activeSheet.selectedMonth !== parsedMonth.month)) {
+      const isPast =
+        parsedMonth.year < activeSheet.selectedYear ||
+        (parsedMonth.year === activeSheet.selectedYear && parsedMonth.month < activeSheet.selectedMonth);
+      track('checklist_month_changed', {
+        direction: isPast ? 'past' : 'future',
+        target_month: formatMonthValue(parsedMonth.year, parsedMonth.month),
+      });
+    }
+
     updateActiveSheet((sheet) => ({
       ...sheet,
       selectedYear: parsedMonth.year,
@@ -1953,7 +2038,17 @@ const App = () => {
     }));
   };
 
-  const updateSleepLogRecord = (date: string, updates: Partial<Pick<SleepLogRecord, 'bedtime' | 'wakeTime'>>) => {
+  const updateSleepLogRecord = (
+    date: string,
+    updates: Partial<Pick<SleepLogRecord, 'bedtime' | 'wakeTime'>>,
+    source: 'card' | 'tonight' | 'history',
+  ) => {
+    const priorRecord = sleepLogRecords.find((record) => record.date === date) ?? {
+      date,
+      bedtime: '',
+      wakeTime: '',
+    };
+
     setSleepLogRecords((currentRecords) => {
       const currentRecord = currentRecords.find((record) => record.date === date) ?? {
         date,
@@ -1971,7 +2066,18 @@ const App = () => {
       return [nextRecord, ...recordsWithoutDate].sort((a, b) => b.date.localeCompare(a.date));
     });
     const field = 'bedtime' in updates ? 'bedtime' : 'wake_time';
-    posthog.capture('sleep_time_logged', { field });
+    track('sleep_time_logged', { field, source });
+
+    const nextRecord = { ...priorRecord, ...updates };
+    const wasComplete = Boolean(priorRecord.bedtime && priorRecord.wakeTime);
+    const durationMinutes = calculateSleepDurationMinutes(nextRecord.bedtime, nextRecord.wakeTime);
+
+    if (!wasComplete && durationMinutes !== null) {
+      track('sleep_night_completed', {
+        duration_minutes: durationMinutes,
+        bedtime_hour: Number(nextRecord.bedtime.split(':')[0]),
+      });
+    }
   };
 
   // A day opened via Add starts as a blank record; if it is still blank when its
@@ -2021,7 +2127,7 @@ const App = () => {
         setSleepLogRecords((currentRecords) => currentRecords.filter((record) => record.date !== date));
         setExpandedSleepDate((current) => (current === date ? null : current));
         setStatus('Sleep record deleted');
-        posthog.capture('sleep_record_deleted');
+        track('sleep_record_deleted');
       },
     });
   };
@@ -2157,10 +2263,16 @@ const App = () => {
       return;
     }
 
-    setDivideAndConquerItems((currentItems) => reconcileDivideAndConquerItemsWithDraftRows(draftRows, currentItems));
-    setActiveView('sortBoard');
+    const reconciledItems = reconcileDivideAndConquerItemsWithDraftRows(draftRows, divideAndConquerItems);
+    const knownIds = new Set(divideAndConquerItems.map((item) => item.id));
+    const newTaskCount = reconciledItems.filter((item) => !knownIds.has(item.id)).length;
+    setDivideAndConquerItems(reconciledItems);
+    navigateToView('sortBoard');
     setStatus('Tasks ready to sort');
-    posthog.capture('task_sorting_started', { task_count: taskCount });
+    track('task_sorting_started', { task_count: taskCount });
+    if (newTaskCount > 0) {
+      track('tasks_added', { new_task_count: newTaskCount });
+    }
   };
 
   const clearMatrixQuadrants = () => {
@@ -2238,6 +2350,13 @@ const App = () => {
     targetTaskId?: string,
     placement: DivideAndConquerDropPlacement = 'after',
   ) => {
+    const priorTask = divideAndConquerItems.find((item) => item.id === taskId);
+
+    // 'completed' is covered by task_completed; reordering inside a bucket is noise.
+    if (priorTask && priorTask.bucket !== bucket && isDivideAndConquerQuadrantBucket(bucket)) {
+      track('task_moved_to_quadrant', { bucket, from_bucket: priorTask.bucket });
+    }
+
     setDivideAndConquerItems((currentItems) => {
       const movingTask = currentItems.find((item) => item.id === taskId);
 
@@ -2323,10 +2442,11 @@ const App = () => {
       ),
     );
     setCurrentFocusTaskId(taskId);
+    focusSetAtRef.current = Date.now();
     setDraggedTaskId(null);
     setIsCompletedMagnetic(false);
     setStatus('Current focus set');
-    posthog.capture('task_set_as_focus');
+    track('task_set_as_focus');
   };
 
   const completeCurrentFocusTask = () => {
@@ -2345,7 +2465,13 @@ const App = () => {
     );
     setCurrentFocusTaskId(null);
     setStatus('Task completed');
-    posthog.capture('task_completed', { completion_method: 'focus_button' });
+    const focusSetAt = focusSetAtRef.current;
+    focusSetAtRef.current = null;
+    track('task_completed', {
+      completion_method: 'focus_button',
+      // Only meaningful when focus was set this session; persisted focus has no timestamp.
+      ...(focusSetAt !== null ? { seconds_since_focus: Math.round((Date.now() - focusSetAt) / 1000) } : {}),
+    });
   };
 
   const clearCurrentFocusTask = () => {
@@ -2412,7 +2538,7 @@ const App = () => {
     if (bucket === 'completed') {
       if (movingTask.bucket !== 'completed') {
         showCompletedDropFeedback(todayCompletedTasks.length + 1);
-        posthog.capture('task_completed', { completion_method: 'drag_and_drop' });
+        track('task_completed', { completion_method: 'drag_and_drop' });
       }
       setStatus('Task completed');
     }
@@ -2573,7 +2699,7 @@ const App = () => {
                       role="menuitem"
                       onClick={() => {
                         setIsPlanMenuOpen(false);
-                        setActiveView('planner');
+                        navigateToView('planner');
                       }}
                     >
                       <span>Brain dump</span>
@@ -2584,7 +2710,7 @@ const App = () => {
                       role="menuitem"
                       onClick={() => {
                         setIsPlanMenuOpen(false);
-                        setActiveView('sortBoard');
+                        navigateToView('sortBoard');
                       }}
                     >
                       <span>Task sorter</span>
@@ -2599,7 +2725,7 @@ const App = () => {
                     setIsPlanMenuOpen(false);
                     setIsSheetMenuOpen(false);
                     setExpandedSleepDate(null);
-                    setActiveView('sleepLog');
+                    navigateToView('sleepLog');
                   }}
                 >
                   Sleep log
@@ -2732,7 +2858,7 @@ const App = () => {
                 <button
                   type="button"
                   className="back-icon-button"
-                  onClick={() => setActiveView('checklist')}
+                  onClick={() => navigateToView('checklist')}
                   aria-label="Back to checklist"
                   title="Back to checklist"
                 >
@@ -2756,7 +2882,7 @@ const App = () => {
                 <button
                   type="button"
                   className="forward-icon-button"
-                  onClick={() => setActiveView('sortBoard')}
+                  onClick={() => navigateToView('sortBoard')}
                   aria-label="Open task sorter"
                   title="Open task sorter"
                 >
@@ -2770,7 +2896,7 @@ const App = () => {
                 <button
                   type="button"
                   className="back-icon-button"
-                  onClick={() => setActiveView('planner')}
+                  onClick={() => navigateToView('planner')}
                   aria-label="Back to daily plan"
                   title="Back to daily plan"
                 >
@@ -2778,7 +2904,7 @@ const App = () => {
                     <path d="M19 12H5M11 18l-6-6 6-6" />
                   </svg>
                 </button>
-                <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
+                <button type="button" className="nav-link-button" onClick={() => navigateToView('checklist')}>
                   Checklist
                 </button>
                 <button
@@ -2800,7 +2926,7 @@ const App = () => {
                 <button
                   type="button"
                   className="back-icon-button"
-                  onClick={() => setActiveView('checklist')}
+                  onClick={() => navigateToView('checklist')}
                   aria-label="Back to checklist"
                   title="Back to checklist"
                 >
@@ -2830,7 +2956,7 @@ const App = () => {
                 <button
                   type="button"
                   className="back-icon-button"
-                  onClick={() => setActiveView(historyReturnViewRef.current)}
+                  onClick={() => navigateToView(historyReturnViewRef.current)}
                   aria-label="Back"
                   title="Back"
                 >
@@ -2838,7 +2964,7 @@ const App = () => {
                     <path d="M19 12H5M11 18l-6-6 6-6" />
                   </svg>
                 </button>
-                <button type="button" className="nav-link-button" onClick={() => setActiveView('checklist')}>
+                <button type="button" className="nav-link-button" onClick={() => navigateToView('checklist')}>
                   Checklist
                 </button>
               </>
@@ -3146,7 +3272,7 @@ const App = () => {
                       ariaLabel={sleepCardIsLastNight ? 'Bedtime for last night' : 'Bedtime for today'}
                       triggerClassName="sleep-editor-bedtime"
                       icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { bedtime: time })}
+                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { bedtime: time }, 'card')}
                     />
                   </div>
                   {sleepDurationText !== '—' ? (
@@ -3162,7 +3288,7 @@ const App = () => {
                       value={sleepActiveRecord.wakeTime}
                       ariaLabel={sleepCardIsLastNight ? 'Wake-up time for last night' : 'Wake-up time for today'}
                       icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
-                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { wakeTime: time })}
+                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { wakeTime: time }, 'card')}
                     />
                   </div>
                 </div>
@@ -3177,7 +3303,7 @@ const App = () => {
                         value=""
                         ariaLabel="Bedtime for tonight"
                         icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                        onChange={(time) => updateSleepLogRecord(sleepToday, { bedtime: time })}
+                        onChange={(time) => updateSleepLogRecord(sleepToday, { bedtime: time }, 'tonight')}
                       />
                     </div>
                   </div>
@@ -3236,7 +3362,7 @@ const App = () => {
                                   ariaLabel={`Bedtime for the night of ${formatSleepLogNightRange(record.date)}`}
                                   triggerClassName="sleep-row-bedtime"
                                   icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                                  onChange={(time) => updateSleepLogRecord(record.date, { bedtime: time })}
+                                  onChange={(time) => updateSleepLogRecord(record.date, { bedtime: time }, 'history')}
                                 />
                               </div>
                               {duration !== '—' ? (
@@ -3252,7 +3378,7 @@ const App = () => {
                                   value={record.wakeTime}
                                   ariaLabel={`Wake-up time for the night of ${formatSleepLogNightRange(record.date)}`}
                                   icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
-                                  onChange={(time) => updateSleepLogRecord(record.date, { wakeTime: time })}
+                                  onChange={(time) => updateSleepLogRecord(record.date, { wakeTime: time }, 'history')}
                                 />
                               </div>
                             </div>
@@ -3593,13 +3719,13 @@ const SectionBlock = ({
   const handleMarkDone = (rowId: string, columnIndex: number) => {
     onMarkDone(rowId, columnIndex);
     setOpenMenuCell(null);
-    posthog.capture('checklist_row_marked', { mark: 'plus', section_id: section.id });
+    track('checklist_row_marked', { mark: 'plus', section_id: section.id });
   };
 
   const handleMarkUndone = (rowId: string, columnIndex: number) => {
     onMarkUndone(rowId, columnIndex);
     setOpenMenuCell(null);
-    posthog.capture('checklist_row_marked', { mark: 'minus', section_id: section.id });
+    track('checklist_row_marked', { mark: 'minus', section_id: section.id });
   };
 
   const handleClearMark = (rowId: string, columnIndex: number) => {
@@ -3623,7 +3749,7 @@ const SectionBlock = ({
 
     onAddRow(label);
     setNewRowLabel('');
-    posthog.capture('checklist_row_added', { section_id: section.id });
+    track('checklist_row_added', { section_id: section.id });
   };
 
   const handleNewRowKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
