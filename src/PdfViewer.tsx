@@ -22,6 +22,41 @@ interface PdfViewerProps {
   title: string;
 }
 
+interface LoadedPdf {
+  doc: PDFDocumentProxy;
+  dimensions: PageDimensions[];
+}
+
+// Parsed documents outlive the component: remounting the planner view reuses
+// the same PDFDocumentProxy instead of re-downloading and re-parsing the file.
+const loadedPdfCache = new Map<string, Promise<LoadedPdf>>();
+
+const loadPdf = (src: string): Promise<LoadedPdf> => {
+  const cached = loadedPdfCache.get(src);
+
+  if (cached) {
+    return cached;
+  }
+
+  const promise = pdfjs.getDocument({ url: src }).promise.then(async (doc) => {
+    const dimensions: PageDimensions[] = [];
+
+    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+      const page = await doc.getPage(pageNumber);
+      const viewport = page.getViewport({ scale: 1 });
+      dimensions.push({ width: viewport.width, height: viewport.height });
+    }
+
+    return { doc, dimensions };
+  });
+
+  loadedPdfCache.set(src, promise);
+  // Drop failed loads so the next mount retries instead of replaying the error.
+  promise.catch(() => loadedPdfCache.delete(src));
+
+  return promise;
+};
+
 // Renders the PDF with pdf.js so zoom works the same in every browser.
 // Zoom 1 means "fit the panel width"; page boxes get their size synchronously
 // from CSS while canvases re-render asynchronously at the new resolution.
@@ -45,18 +80,9 @@ export const PdfViewer = ({ src, title }: PdfViewerProps) => {
 
   useEffect(() => {
     let cancelled = false;
-    const loadingTask = pdfjs.getDocument({ url: src });
 
-    loadingTask.promise
-      .then(async (loadedDoc) => {
-        const dimensions: PageDimensions[] = [];
-
-        for (let pageNumber = 1; pageNumber <= loadedDoc.numPages; pageNumber += 1) {
-          const page = await loadedDoc.getPage(pageNumber);
-          const viewport = page.getViewport({ scale: 1 });
-          dimensions.push({ width: viewport.width, height: viewport.height });
-        }
-
+    loadPdf(src)
+      .then(({ doc: loadedDoc, dimensions }) => {
         if (cancelled) {
           return;
         }
@@ -70,9 +96,9 @@ export const PdfViewer = ({ src, title }: PdfViewerProps) => {
         }
       });
 
+    // No destroy on unmount: the cached document is shared with future mounts.
     return () => {
       cancelled = true;
-      void loadingTask.destroy();
     };
   }, [src]);
 
