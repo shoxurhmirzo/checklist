@@ -2322,6 +2322,31 @@ thead th {
   margin-top: 0.65rem;
 }
 
+.sleep-tonight-row {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 1.1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid #e0e4e6;
+}
+
+/* Keep the input at its natural width so the absolutely-positioned
+   icon stays inside the box instead of tracking the full-width row. */
+.sleep-tonight-row .sleep-time-field {
+  justify-self: start;
+}
+
+.sleep-tonight-label {
+  color: #111;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.sleep-tonight-label span {
+  color: #758187;
+  font-weight: 400;
+}
+
 .sleep-time-field {
   display: grid;
   gap: 0.35rem;
@@ -2535,21 +2560,9 @@ thead th {
   font-weight: 600;
 }
 
-.sleep-week-list {
-  display: grid;
-  gap: 1.25rem;
-  padding: 0 0 0.75rem;
-}
-
-.sleep-week h3 {
-  margin: 0 0 0.45rem;
-  color: #4b565c;
-  font-size: 0.82rem;
-  font-weight: 600;
-}
-
 .sleep-history-rows {
   border-top: 1px solid #e0e4e6;
+  margin-bottom: 0.75rem;
 }
 
 .sleep-history-row {

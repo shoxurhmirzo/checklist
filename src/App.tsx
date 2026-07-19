@@ -119,12 +119,6 @@ interface HistoryTaskEdit {
   taskId: string;
 }
 
-interface SleepLogWeek {
-  startDate: string;
-  endDate: string;
-  records: SleepLogRecord[];
-}
-
 const downloadTextFile = (content: string, fileName: string) => {
   const blob = new Blob([content], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
@@ -234,15 +228,27 @@ const formatHistoryDate = (date: string) =>
 const formatHistoryWeekday = (date: string) =>
   new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`));
 
-const formatSleepLogDate = (date: string) =>
+// A sleep record is stored under its bedtime date; the night ends on the next
+// calendar day, so labels show the full range (e.g. "Jul 18 – 19").
+const getSleepNightEnd = (date: string) => {
+  const end = new Date(`${date}T00:00:00`);
+  end.setDate(end.getDate() + 1);
+
+  return end;
+};
+
+const formatSleepLogNightRange = (date: string) =>
   new Intl.DateTimeFormat(undefined, {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
-  }).format(new Date(`${date}T00:00:00`));
+  }).formatRange(new Date(`${date}T00:00:00`), getSleepNightEnd(date));
 
 const formatSleepLogDayLabel = (date: string) =>
-  new Intl.DateTimeFormat(undefined, { weekday: 'short', day: 'numeric' }).format(new Date(`${date}T00:00:00`));
+  new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).formatRange(new Date(`${date}T00:00:00`), getSleepNightEnd(date));
 
 const formatSleepLogTime = (time: string) => {
   if (!time) {
@@ -268,59 +274,6 @@ const getLocaleFirstWeekday = () => {
   } catch {
     return 1;
   }
-};
-
-const getLocaleWeekStartDate = (dateString: string) => {
-  const date = new Date(`${dateString}T00:00:00`);
-  const firstDayOfWeek = getLocaleFirstWeekday();
-  const dayOfWeek = date.getDay() || 7;
-  const daysSinceWeekStart = (dayOfWeek - firstDayOfWeek + 7) % 7;
-  date.setDate(date.getDate() - daysSinceWeekStart);
-
-  return getLocalDateString(date);
-};
-
-const formatSleepLogWeekRange = (startDate: string, endDate: string) => {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-  const includeYear = start.getFullYear() !== end.getFullYear() || start.getFullYear() !== new Date().getFullYear();
-  const formatOptions: Intl.DateTimeFormatOptions = {
-    month: 'short',
-    day: 'numeric',
-    ...(includeYear ? { year: 'numeric' } : {}),
-  };
-  const formatter = new Intl.DateTimeFormat(undefined, formatOptions);
-
-  return `${formatter.format(start)} – ${formatter.format(end)}`;
-};
-
-const groupSleepLogRecordsByWeek = (records: SleepLogRecord[]): SleepLogWeek[] => {
-  const weeksByStartDate = new Map<string, SleepLogWeek>();
-
-  records.forEach((record) => {
-    const startDate = getLocaleWeekStartDate(record.date);
-    const week = weeksByStartDate.get(startDate);
-
-    if (week) {
-      week.records.push(record);
-      return;
-    }
-
-    const end = new Date(`${startDate}T00:00:00`);
-    end.setDate(end.getDate() + 6);
-    weeksByStartDate.set(startDate, {
-      startDate,
-      endDate: getLocalDateString(end),
-      records: [record],
-    });
-  });
-
-  return Array.from(weeksByStartDate.values())
-    .sort((first, second) => second.startDate.localeCompare(first.startDate))
-    .map((week) => ({
-      ...week,
-      records: [...week.records].sort((first, second) => second.date.localeCompare(first.date)),
-    }));
 };
 
 const calculateSleepDurationMinutes = (bedtime: string, wakeTime: string) => {
@@ -1448,19 +1401,21 @@ const App = () => {
   })();
   const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday);
   const sleepYesterdayRecord = sleepLogRecords.find((record) => record.date === sleepYesterday);
-  // A night belongs to the day the bedtime was logged. Until today gets its own
-  // entry, yesterday's bedtime with no wake time is still "last night", so the
-  // card keeps pointing at it and the morning wake-up completes that record.
+  // A night belongs to the day the bedtime was logged, and its wake-up lands on
+  // the next morning. Last night stays in the card for the whole day — it only
+  // moves to History once a newer night starts (a record dated today appears).
   const sleepActiveRecord =
-    !sleepTodayRecord && sleepYesterdayRecord?.bedtime && !sleepYesterdayRecord.wakeTime
-      ? sleepYesterdayRecord
-      : (sleepTodayRecord ?? { date: sleepToday, bedtime: '', wakeTime: '' });
+    sleepTodayRecord ??
+    (sleepYesterdayRecord?.bedtime ? sleepYesterdayRecord : { date: sleepToday, bedtime: '', wakeTime: '' });
   const sleepActiveDate = sleepActiveRecord.date;
   const sleepCardIsLastNight = sleepActiveDate !== sleepToday;
-  // The active night lives in the card above; History is strictly other days.
-  const visibleSleepWeeks = groupSleepLogRecordsByWeek(
-    sleepLogRecords.filter((record) => record.date !== sleepToday && record.date !== sleepActiveDate),
-  );
+  // While the card still shows last night, tonight has no record yet — an
+  // explicit "Tonight" bedtime field starts it without touching last night.
+  const sleepShowTonightStarter = sleepCardIsLastNight;
+  // The active night lives in the card above; History is strictly older nights.
+  const visibleSleepRecords = sleepLogRecords
+    .filter((record) => record.date !== sleepToday && record.date !== sleepActiveDate)
+    .sort((first, second) => second.date.localeCompare(first.date));
   const sleepDurationText = formatSleepDuration(sleepActiveRecord.bedtime, sleepActiveRecord.wakeTime);
 
   const markHistoryTaskComplete = (date: string, taskId: string) => {
@@ -2053,7 +2008,7 @@ const App = () => {
   const deleteSleepLogRecord = (date: string) => {
     setConfirmState({
       title: 'Delete sleep record',
-      message: `Delete the sleep record for ${formatSleepLogDate(date)}?`,
+      message: `Delete the sleep record for ${formatSleepLogNightRange(date)}?`,
       confirmLabel: 'Delete',
       onConfirm: () => {
         setSleepLogRecords((currentRecords) => currentRecords.filter((record) => record.date !== date));
@@ -3155,7 +3110,7 @@ const App = () => {
               <header className="sleep-log-heading">
                 <div className="sleep-log-heading-row">
                   <div>
-                    <h1 id="sleep-log-title">Sleep <span>· {formatSleepLogDate(sleepActiveDate)}</span></h1>
+                    <h1 id="sleep-log-title">Sleep <span>· {formatSleepLogNightRange(sleepActiveDate)}</span></h1>
                   </div>
                   <div className="sleep-log-actions">
                     {sleepLogRecords.some((record) => record.date === sleepActiveDate) ? (
@@ -3199,6 +3154,22 @@ const App = () => {
                     />
                   </div>
                 </div>
+                {sleepShowTonightStarter ? (
+                  <div className="sleep-tonight-row">
+                    <span className="sleep-tonight-label">
+                      Tonight <span>· {formatSleepLogNightRange(sleepToday)}</span>
+                    </span>
+                    <div className="sleep-time-field">
+                      <span>Bed</span>
+                      <SleepTimePicker
+                        value=""
+                        ariaLabel="Bedtime for tonight"
+                        icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
+                        onChange={(time) => updateSleepLogRecord(sleepToday, { bedtime: time })}
+                      />
+                    </div>
+                  </div>
+                ) : null}
               </section>
               <section className="sleep-history" aria-label="Sleep history">
                 <div className="sleep-history-heading">
@@ -3210,92 +3181,81 @@ const App = () => {
                     onSelect={addSleepHistoryDay}
                   />
                 </div>
-                <div className="sleep-week-list">
-                  {visibleSleepWeeks.map((week) => (
-                    <section
-                      key={week.startDate}
-                      className="sleep-week"
-                      aria-label={formatSleepLogWeekRange(week.startDate, week.endDate)}
-                    >
-                      <h3>{formatSleepLogWeekRange(week.startDate, week.endDate)}</h3>
-                      <div className="sleep-history-rows">
-                        {week.records.map((record) => {
-                          const isExpanded = record.date === expandedSleepDate;
-                          const duration = formatSleepDuration(record.bedtime, record.wakeTime);
+                <div className="sleep-history-rows">
+                  {visibleSleepRecords.map((record) => {
+                    const isExpanded = record.date === expandedSleepDate;
+                    const duration = formatSleepDuration(record.bedtime, record.wakeTime);
 
-                          return (
-                            <div key={record.date} className={`sleep-history-item${isExpanded ? ' is-expanded' : ''}`}>
-                              <button
-                                type="button"
-                                className="sleep-history-row"
-                                onClick={() => toggleSleepHistoryRow(record.date)}
-                                aria-expanded={isExpanded}
-                                aria-label={`Edit sleep record for ${formatSleepLogDate(record.date)}`}
-                              >
-                                <time className="sleep-history-date" dateTime={record.date}>
-                                  {formatSleepLogDayLabel(record.date)}
-                                </time>
-                                <span className="sleep-history-range">
-                                  {record.bedtime ? (
-                                    formatSleepLogTime(record.bedtime)
-                                  ) : (
-                                    <span className="is-missing">–:––</span>
-                                  )}
-                                  {' – '}
-                                  {record.wakeTime ? (
-                                    formatSleepLogTime(record.wakeTime)
-                                  ) : (
-                                    <span className="is-missing">–:––</span>
-                                  )}
-                                </span>
-                                <span className="sleep-history-duration">{duration === '—' ? '' : duration}</span>
-                                <ChevronRight className="sleep-history-chevron" size={16} strokeWidth={2} aria-hidden="true" />
-                              </button>
-                              {isExpanded ? (
-                                <div className="sleep-history-editor">
-                                  <div className="sleep-editor-fields">
-                                    <div className="sleep-time-field">
-                                      <span>Bed</span>
-                                      <SleepTimePicker
-                                        value={record.bedtime}
-                                        ariaLabel={`Bedtime for ${formatSleepLogDate(record.date)}`}
-                                        triggerClassName="sleep-row-bedtime"
-                                        icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                                        onChange={(time) => updateSleepLogRecord(record.date, { bedtime: time })}
-                                      />
-                                    </div>
-                                    {duration !== '—' ? (
-                                      <output className="sleep-duration-summary" aria-label={`Sleep duration ${duration}`}>
-                                        <strong>{duration}</strong>
-                                      </output>
-                                    ) : (
-                                      <span className="sleep-duration-summary" aria-hidden="true" />
-                                    )}
-                                    <div className="sleep-time-field">
-                                      <span>Wake</span>
-                                      <SleepTimePicker
-                                        value={record.wakeTime}
-                                        ariaLabel={`Wake-up time for ${formatSleepLogDate(record.date)}`}
-                                        icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
-                                        onChange={(time) => updateSleepLogRecord(record.date, { wakeTime: time })}
-                                      />
-                                    </div>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    className="sleep-text-button sleep-remove-button"
-                                    onClick={() => deleteSleepLogRecord(record.date)}
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
-                              ) : null}
+                    return (
+                      <div key={record.date} className={`sleep-history-item${isExpanded ? ' is-expanded' : ''}`}>
+                        <button
+                          type="button"
+                          className="sleep-history-row"
+                          onClick={() => toggleSleepHistoryRow(record.date)}
+                          aria-expanded={isExpanded}
+                          aria-label={`Edit sleep record for ${formatSleepLogNightRange(record.date)}`}
+                        >
+                          <time className="sleep-history-date" dateTime={record.date}>
+                            {formatSleepLogDayLabel(record.date)}
+                          </time>
+                          <span className="sleep-history-range">
+                            {record.bedtime ? (
+                              formatSleepLogTime(record.bedtime)
+                            ) : (
+                              <span className="is-missing">–:––</span>
+                            )}
+                            {' – '}
+                            {record.wakeTime ? (
+                              formatSleepLogTime(record.wakeTime)
+                            ) : (
+                              <span className="is-missing">–:––</span>
+                            )}
+                          </span>
+                          <span className="sleep-history-duration">{duration === '—' ? '' : duration}</span>
+                          <ChevronRight className="sleep-history-chevron" size={16} strokeWidth={2} aria-hidden="true" />
+                        </button>
+                        {isExpanded ? (
+                          <div className="sleep-history-editor">
+                            <div className="sleep-editor-fields">
+                              <div className="sleep-time-field">
+                                <span>Bed</span>
+                                <SleepTimePicker
+                                  value={record.bedtime}
+                                  ariaLabel={`Bedtime for the night of ${formatSleepLogNightRange(record.date)}`}
+                                  triggerClassName="sleep-row-bedtime"
+                                  icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
+                                  onChange={(time) => updateSleepLogRecord(record.date, { bedtime: time })}
+                                />
+                              </div>
+                              {duration !== '—' ? (
+                                <output className="sleep-duration-summary" aria-label={`Sleep duration ${duration}`}>
+                                  <strong>{duration}</strong>
+                                </output>
+                              ) : (
+                                <span className="sleep-duration-summary" aria-hidden="true" />
+                              )}
+                              <div className="sleep-time-field">
+                                <span>Wake</span>
+                                <SleepTimePicker
+                                  value={record.wakeTime}
+                                  ariaLabel={`Wake-up time for the night of ${formatSleepLogNightRange(record.date)}`}
+                                  icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
+                                  onChange={(time) => updateSleepLogRecord(record.date, { wakeTime: time })}
+                                />
+                              </div>
                             </div>
-                          );
-                        })}
+                            <button
+                              type="button"
+                              className="sleep-text-button sleep-remove-button"
+                              onClick={() => deleteSleepLogRecord(record.date)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ) : null}
                       </div>
-                    </section>
-                  ))}
+                    );
+                  })}
                 </div>
               </section>
             </div>
