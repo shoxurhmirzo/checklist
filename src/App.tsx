@@ -385,9 +385,12 @@ interface SleepTimePickerProps {
   triggerClassName?: string;
   icon: ReactNode;
   onChange: (value: string) => void;
+  // Fires once when the popup closes (or unmounts while open), with the final
+  // value — lets callers defer side effects until the user is done editing.
+  onClose?: (finalValue: string) => void;
 }
 
-const SleepTimePicker = ({ value, ariaLabel, triggerClassName, icon, onChange }: SleepTimePickerProps) => {
+const SleepTimePicker = ({ value, ariaLabel, triggerClassName, icon, onChange, onClose }: SleepTimePickerProps) => {
   const [isOpen, setIsOpen] = useState(false);
   // Text being typed into the hour/minute boxes; null when not editing by keyboard.
   const [hourDraft, setHourDraft] = useState<string | null>(null);
@@ -400,8 +403,10 @@ const SleepTimePicker = ({ value, ariaLabel, triggerClassName, icon, onChange }:
   const minuteInputRef = useRef<HTMLInputElement | null>(null);
   const containerRef = useRef<HTMLSpanElement | null>(null);
   const valueRef = useRef(value);
+  const onCloseRef = useRef(onClose);
   const repeatTimersRef = useRef<number[]>([]);
   valueRef.current = value;
+  onCloseRef.current = onClose;
 
   const stopStepRepeat = () => {
     repeatTimersRef.current.forEach((timer) => {
@@ -439,6 +444,9 @@ const SleepTimePicker = ({ value, ariaLabel, triggerClassName, icon, onChange }:
     return () => {
       document.removeEventListener('pointerdown', handlePointerDown);
       document.removeEventListener('keydown', handleKeyDown);
+      // Must read valueRef, not the value prop: a blur commit in the same event
+      // that closed the popup hasn't re-rendered into the prop yet.
+      onCloseRef.current?.(valueRef.current);
     };
   }, [isOpen]);
 
@@ -877,6 +885,10 @@ const App = () => {
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
   const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
   const [expandedSleepDate, setExpandedSleepDate] = useState<string | null>(null);
+  // Tonight's bedtime stays here while the picker is open; committing it to
+  // sleepLogRecords mid-edit would promote tonight into the card and unmount
+  // the picker under the user's finger.
+  const [tonightBedtimeDraft, setTonightBedtimeDraft] = useState('');
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaDraft, setIdeaDraft] = useState('');
   const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null);
@@ -3620,10 +3632,16 @@ const App = () => {
                     <div className="sleep-time-field">
                       <span>Bed</span>
                       <SleepTimePicker
-                        value=""
+                        value={tonightBedtimeDraft}
                         ariaLabel="Bedtime for tonight"
                         icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                        onChange={(time) => updateSleepLogRecord(sleepToday, { bedtime: time }, 'tonight')}
+                        onChange={setTonightBedtimeDraft}
+                        onClose={(time) => {
+                          if (time) {
+                            updateSleepLogRecord(sleepToday, { bedtime: time }, 'tonight');
+                            setTonightBedtimeDraft('');
+                          }
+                        }}
                       />
                     </div>
                   </div>
