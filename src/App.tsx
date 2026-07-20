@@ -302,6 +302,14 @@ const formatHistoryDate = (date: string) =>
 const formatHistoryWeekday = (date: string) =>
   new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`));
 
+// Before this hour, sleep times describe the night that started yesterday (a
+// 2:00 AM bedtime logged in the morning belongs to last night); from this hour
+// on, a bedtime starts tonight's record. The cutoff sits after any plausible
+// wake-up and before any plausible bedtime.
+const SLEEP_EVENING_CUTOFF_HOUR = 18;
+
+const isSleepEveningNow = () => new Date().getHours() >= SLEEP_EVENING_CUTOFF_HOUR;
+
 // A sleep record is stored under its bedtime date; the night ends on the next
 // calendar day, so labels show the full range (e.g. "Jul 18 – 19").
 const getSleepNightEnd = (date: string) => {
@@ -909,6 +917,10 @@ const App = () => {
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
   const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
   const [expandedSleepDate, setExpandedSleepDate] = useState<string | null>(null);
+  // Whether the clock has passed the evening cutoff — flips the sleep card from
+  // last night to tonight. Kept in state so the card updates while the app sits
+  // open across the cutoff, not only on the next interaction.
+  const [sleepIsEvening, setSleepIsEvening] = useState(isSleepEveningNow);
   // Tonight's bedtime stays here while the picker is open; committing it to
   // sleepLogRecords mid-edit would promote tonight into the card and unmount
   // the picker under the user's finger.
@@ -1467,6 +1479,22 @@ const App = () => {
   }, [isLoaded]);
 
   useEffect(() => {
+    const refreshSleepEvening = () => setSleepIsEvening(isSleepEveningNow());
+
+    // Same short-interval-plus-listeners pattern as the rollover check: a single
+    // timeout to the cutoff drifts or never fires after the machine sleeps.
+    const intervalId = window.setInterval(refreshSleepEvening, 60_000);
+    document.addEventListener('visibilitychange', refreshSleepEvening);
+    window.addEventListener('focus', refreshSleepEvening);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshSleepEvening);
+      window.removeEventListener('focus', refreshSleepEvening);
+    };
+  }, []);
+
+  useEffect(() => {
     const workspace = workspaceRef.current;
     const wrapper = sheetWrapperRef.current;
     const dock = checklistDockRef.current;
@@ -1579,13 +1607,16 @@ const App = () => {
   const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday);
   const sleepYesterdayRecord = sleepLogRecords.find((record) => record.date === sleepYesterday);
   // A record is keyed by the day its night starts; an after-midnight bedtime
-  // still belongs to the previous day's night. The card shows last night for
-  // the whole day — a blank card must be dated yesterday, or a bedtime logged
-  // in the morning would land in tonight's slot and erase the night that just
-  // ended once tonight is logged. Last night only moves to History when tonight
-  // starts (a record dated today appears, via the Tonight field).
-  const sleepActiveRecord =
-    sleepTodayRecord ?? sleepYesterdayRecord ?? { date: sleepYesterday, bedtime: '', wakeTime: '' };
+  // still belongs to the previous day's night. Which night the card edits
+  // follows the clock: until the evening cutoff it is last night — a bedtime or
+  // wake-up logged in the morning describes the night that just ended. From the
+  // cutoff on it is tonight, keyed today — otherwise an evening bedtime would
+  // overwrite last night's record instead of starting a new night, even though
+  // both nights have times on today's calendar date. Last night stays intact in
+  // History once the card flips.
+  const sleepActiveRecord = sleepIsEvening
+    ? sleepTodayRecord ?? { date: sleepToday, bedtime: '', wakeTime: '' }
+    : sleepTodayRecord ?? sleepYesterdayRecord ?? { date: sleepYesterday, bedtime: '', wakeTime: '' };
   const sleepActiveDate = sleepActiveRecord.date;
   const sleepCardIsLastNight = sleepActiveDate !== sleepToday;
   // While the card still shows last night, tonight has no record yet — an
