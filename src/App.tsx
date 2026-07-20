@@ -1578,12 +1578,14 @@ const App = () => {
   })();
   const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday);
   const sleepYesterdayRecord = sleepLogRecords.find((record) => record.date === sleepYesterday);
-  // A night belongs to the day the bedtime was logged, and its wake-up lands on
-  // the next morning. Last night stays in the card for the whole day — it only
-  // moves to History once a newer night starts (a record dated today appears).
+  // A record is keyed by the day its night starts; an after-midnight bedtime
+  // still belongs to the previous day's night. The card shows last night for
+  // the whole day — a blank card must be dated yesterday, or a bedtime logged
+  // in the morning would land in tonight's slot and erase the night that just
+  // ended once tonight is logged. Last night only moves to History when tonight
+  // starts (a record dated today appears, via the Tonight field).
   const sleepActiveRecord =
-    sleepTodayRecord ??
-    (sleepYesterdayRecord?.bedtime ? sleepYesterdayRecord : { date: sleepToday, bedtime: '', wakeTime: '' });
+    sleepTodayRecord ?? sleepYesterdayRecord ?? { date: sleepYesterday, bedtime: '', wakeTime: '' };
   const sleepActiveDate = sleepActiveRecord.date;
   const sleepCardIsLastNight = sleepActiveDate !== sleepToday;
   // While the card still shows last night, tonight has no record yet — an
