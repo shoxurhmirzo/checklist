@@ -18,11 +18,8 @@ import { track, trackError } from './analytics';
 const PdfViewer = lazy(() => import('./PdfViewer').then((module) => ({ default: module.PdfViewer })));
 import { flushSync } from 'react-dom';
 import {
-  Brain,
   BrushCleaning,
   Check,
-  Download,
-  Folder,
   Minus,
   Pencil,
   Plus,
@@ -68,14 +65,6 @@ import type {
 const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
 const COMPLETED_MAGNETIC_DISTANCE = 60;
 const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
-
-const BrainDumpMenuIcon = () => (
-  <Brain className="plan-menu-icon brain-dump-menu-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
-);
-
-const TaskSorterMenuIcon = () => (
-  <Folder className="plan-menu-icon task-sorter-menu-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
-);
 
 
 type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'ideas';
@@ -258,6 +247,42 @@ const loadPlanSplitPercent = () => {
   return Number.isFinite(stored) && stored > 0 ? clampPlanSplitPercent(stored) : 50;
 };
 
+const MATRIX_LABEL_MODE_STORAGE_KEY = 'checklist:matrixLabelMode';
+
+type MatrixLabelMode = 'attraction' | 'eisenhower';
+
+const MATRIX_QUADRANT_LABELS: Record<
+  MatrixLabelMode,
+  { topLeft: string; topRight: string; bottomLeft: string; bottomRight: string }
+> = {
+  attraction: { topLeft: 'Do First', topRight: 'Enjoy', bottomLeft: 'Avoid', bottomRight: 'Eliminate' },
+  eisenhower: {
+    topLeft: 'Urgent & Important',
+    topRight: 'Important, Not Urgent',
+    bottomLeft: 'Urgent, Not Important',
+    bottomRight: 'Not Urgent or Important',
+  },
+};
+
+const loadMatrixLabelMode = (): MatrixLabelMode =>
+  window.localStorage.getItem(MATRIX_LABEL_MODE_STORAGE_KEY) === 'eisenhower' ? 'eisenhower' : 'attraction';
+
+const LAST_WORK_VIEW_STORAGE_KEY = 'checklist:lastWorkView';
+
+const WORK_VIEWS: AppView[] = ['planner', 'sortBoard', 'ideas', 'history'];
+
+const WORK_TAB_ITEMS: { view: AppView; label: string }[] = [
+  { view: 'planner', label: 'Capture' },
+  { view: 'sortBoard', label: 'Focus' },
+  { view: 'ideas', label: 'Ideas' },
+  { view: 'history', label: 'History' },
+];
+
+const loadLastWorkView = (): AppView => {
+  const stored = window.localStorage.getItem(LAST_WORK_VIEW_STORAGE_KEY);
+  return WORK_VIEWS.includes(stored as AppView) ? (stored as AppView) : 'planner';
+};
+
 const autoSizeTextArea = (element: HTMLTextAreaElement) => {
   element.style.height = 'auto';
   element.style.height = `${element.scrollHeight}px`;
@@ -366,6 +391,8 @@ const App = () => {
   const [sheets, setSheets] = useState<ChecklistSheet[]>([]);
   const [activeSheetId, setActiveSheetId] = useState<string>('');
   const [activeView, setActiveView] = useState<AppView>(() => parseViewFromHash(window.location.hash));
+  const [matrixLabelMode, setMatrixLabelMode] = useState<MatrixLabelMode>(loadMatrixLabelMode);
+  const lastWorkViewRef = useRef<AppView>(loadLastWorkView());
   const [divideAndConquerText, setDivideAndConquerText] = useState(DEFAULT_DIVIDE_AND_CONQUER_TEXT);
   const [divideAndConquerDraftRows, setDivideAndConquerDraftRows] = useState<DivideAndConquerDraftRow[]>(() =>
     parseDivideAndConquerDraftRows(DEFAULT_DIVIDE_AND_CONQUER_TEXT),
@@ -399,8 +426,56 @@ const App = () => {
   const latestAppStateRef = useRef<AppState | null>(null);
   const saveFeedbackTimeoutRef = useRef<number | null>(null);
   const rolloverCheckRef = useRef<() => void>(() => {});
-  const historyReturnViewRef = useRef<AppView>('checklist');
   const focusSetAtByTaskIdRef = useRef(new Map<string, number>());
+
+  const toggleMatrixLabelMode = () => {
+    const nextMode: MatrixLabelMode = matrixLabelMode === 'attraction' ? 'eisenhower' : 'attraction';
+    setMatrixLabelMode(nextMode);
+    window.localStorage.setItem(MATRIX_LABEL_MODE_STORAGE_KEY, nextMode);
+    track('matrix_label_mode_toggled', { mode: nextMode });
+  };
+
+  useEffect(() => {
+    if (activeView !== 'sortBoard') {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'm' && event.key !== 'M') {
+        return;
+      }
+
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        return;
+      }
+
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
+      const nextMode: MatrixLabelMode = matrixLabelMode === 'attraction' ? 'eisenhower' : 'attraction';
+      setMatrixLabelMode(nextMode);
+      window.localStorage.setItem(MATRIX_LABEL_MODE_STORAGE_KEY, nextMode);
+      track('matrix_label_mode_toggled', { mode: nextMode, via: 'keyboard' });
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [activeView, matrixLabelMode]);
+
+  useEffect(() => {
+    if (WORK_VIEWS.includes(activeView)) {
+      lastWorkViewRef.current = activeView;
+      window.localStorage.setItem(LAST_WORK_VIEW_STORAGE_KEY, activeView);
+    }
+  }, [activeView]);
 
   // pushState (not location.hash) so PostHog's history_change pageview
   // capture sees every view switch; popstate covers back/forward.
@@ -425,15 +500,13 @@ const App = () => {
     };
   }, []);
 
-  const [status, setStatus] = useState('Loading checklist...');
-  const [isSheetMenuOpen, setIsSheetMenuOpen] = useState(false);
-  const [isPlanMenuOpen, setIsPlanMenuOpen] = useState(false);
+  const [status, setStatus] = useState('Loading…');
   const [isRenamingSheet, setIsRenamingSheet] = useState(false);
   const [sheetNameDraft, setSheetNameDraft] = useState('');
+  const [isSheetMenuOpen, setIsSheetMenuOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
-  const sheetMenuRef = useRef<HTMLDivElement | null>(null);
-  const planMenuRef = useRef<HTMLDivElement | null>(null);
   const sheetNameInputRef = useRef<HTMLInputElement | null>(null);
+  const sheetMenuRef = useRef<HTMLDivElement | null>(null);
   const renameCancelledRef = useRef(false);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const sheetWrapperRef = useRef<HTMLElement | null>(null);
@@ -610,44 +683,9 @@ const App = () => {
         track('checklist_fullscreen_toggled', { entering: true });
       }
     } catch {
-      setStatus('Fullscreen is not available in this browser');
+      setStatus('Fullscreen isn\'t available in this browser.');
     }
   };
-
-  useEffect(() => {
-    if (!isSheetMenuOpen && !isPlanMenuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-
-      if (
-        target instanceof Node &&
-        (sheetMenuRef.current?.contains(target) || planMenuRef.current?.contains(target))
-      ) {
-        return;
-      }
-
-      setIsSheetMenuOpen(false);
-      setIsPlanMenuOpen(false);
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsSheetMenuOpen(false);
-        setIsPlanMenuOpen(false);
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isPlanMenuOpen, isSheetMenuOpen]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -699,10 +737,21 @@ const App = () => {
   }, [isRenamingSheet]);
 
   useEffect(() => {
-    setIsSheetMenuOpen(false);
-    setIsPlanMenuOpen(false);
     setIsRenamingSheet(false);
   }, [activeSheetId, activeView]);
+
+  useEffect(() => {
+    if (!isSheetMenuOpen) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (sheetMenuRef.current && !sheetMenuRef.current.contains(event.target as Node)) {
+        setIsSheetMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSheetMenuOpen]);
 
   useEffect(() => {
     if (
@@ -761,7 +810,7 @@ const App = () => {
             removeTextsFromDraftRows(divideAndConquerDraftRowsRef.current, rolled.completedTexts),
           );
         }
-        setStatus('Checklist loaded');
+        setStatus('Ready.');
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -775,7 +824,7 @@ const App = () => {
         // Loading failed, which is not the same as no data existing: autosaving
         // this fresh state would overwrite whatever is still stored.
         setPersistenceBlocked(true);
-        setStatus('Could not load saved data — autosave is paused to protect it. Reload to retry.');
+        setStatus('Couldn\'t load your data — autosave is paused. Reload to try again.');
       })
       .finally(() => {
         if (!cancelled) {
@@ -824,7 +873,7 @@ const App = () => {
         .catch((error: unknown) => {
           trackError(error, { stage: 'save_app_state' });
           setPersistenceFeedback('idle');
-          setStatus('Save failed. Export a backup after your next successful save.');
+          setStatus('Save failed. Export a backup to protect your data.');
         });
     }, 400);
 
@@ -904,7 +953,7 @@ const App = () => {
       setIsCompletedMagnetic(false);
 
       if (previousRolloverDate !== null) {
-        setStatus('New day — task list renewed');
+        setStatus('New day. Your task list is ready.');
         track('daily_rollover', {
           completed_count: result.completedTexts.length,
           undone_count: divideAndConquerItems.filter((item) => item.bucket !== 'completed').length,
@@ -1058,7 +1107,7 @@ const App = () => {
         };
       }),
     );
-    setStatus('Past task marked complete');
+    setStatus('Marked complete.');
     track('history_task_completed', { days_ago: daysAgoFromToday(date) });
   };
 
@@ -1097,7 +1146,7 @@ const App = () => {
     );
     setEditingHistoryTask(null);
     setHistoryTaskDraft('');
-    setStatus('Past task updated');
+    setStatus('Updated.');
     track('history_task_edited', { days_ago: daysAgoFromToday(editingHistoryTask.date) });
   };
 
@@ -1427,7 +1476,7 @@ const App = () => {
 
     if (activeSheet && sheetNameDraft !== activeSheet.name) {
       updateActiveSheet((sheet) => ({ ...sheet, name: sheetNameDraft }));
-      setStatus('Sheet renamed');
+      setStatus('Renamed.');
       track('checklist_sheet_renamed');
     }
 
@@ -1448,11 +1497,6 @@ const App = () => {
     }
   };
 
-  const runSheetMenuAction = (action: () => void) => {
-    setIsSheetMenuOpen(false);
-    action();
-  };
-
   const updateSectionRows = (
     sectionId: SectionId,
     updater: (rows: ChecklistSection['rows']) => ChecklistSection['rows'],
@@ -1470,32 +1514,71 @@ const App = () => {
     const nextSheet = createSheet(`Checklist ${nextSheetNumber}`);
     setSheets((currentSheets) => [nextSheet, ...currentSheets]);
     setActiveSheetId(nextSheet.id);
-    setStatus('New sheet created');
+    setStatus('Sheet added.');
     track('checklist_sheet_created', { sheet_number: nextSheetNumber });
   };
 
   const handleDeleteSheet = (sheetId: string) => {
     if (sheets.length === 1) {
-      window.alert('At least one sheet must stay available.');
+      window.alert('You need at least one sheet.');
       return;
     }
 
     setConfirmState({
       title: 'Delete sheet',
-      message: 'Delete this sheet permanently from local storage?',
+      message: 'This will permanently delete the sheet.',
       confirmLabel: 'Delete',
       onConfirm: () => {
         setSheets((currentSheets) => currentSheets.filter((sheet) => sheet.id !== sheetId));
-        setStatus('Sheet deleted');
+        setStatus('Deleted.');
         track('checklist_sheet_deleted');
       },
     });
   };
 
-  const openHistoryView = () => {
-    historyReturnViewRef.current = activeView;
-    navigateToView('history');
+  const renderModeTabs = () => {
+    const inWork = WORK_VIEWS.includes(activeView);
+
+    return (
+      <div className="mode-bar-row">
+        <div className={`mode-tabs ${inWork ? 'work-active' : ''}`}>
+          <span className="mode-tabs-thumb" aria-hidden="true" />
+          <button
+            type="button"
+            className={`mode-tab ${inWork ? '' : 'active'}`}
+            aria-current={inWork ? undefined : 'page'}
+            onClick={() => navigateToView('checklist')}
+          >
+            Checklist
+          </button>
+          <button
+            type="button"
+            className={`mode-tab ${inWork ? 'active' : ''}`}
+            aria-current={inWork ? 'page' : undefined}
+            onClick={() => navigateToView(lastWorkViewRef.current)}
+          >
+            Work
+          </button>
+        </div>
+      </div>
+    );
   };
+
+  const renderWorkTabs = (currentView: AppView) => (
+    <nav className="work-tabs" aria-label="Work pages">
+      {WORK_TAB_ITEMS.map(({ view, label }) => (
+        <button
+          key={view}
+          type="button"
+          className={`page-nav-link ${view === currentView ? 'active' : ''}`}
+          aria-current={view === currentView ? 'page' : undefined}
+          onClick={() => navigateToView(view)}
+        >
+          {label}
+        </button>
+      ))}
+    </nav>
+  );
 
   const handleExport = () => {
     const payload = createBackupPayload({
@@ -1510,7 +1593,7 @@ const App = () => {
     });
     const timeStamp = new Date().toISOString().slice(0, 10);
     downloadTextFile(JSON.stringify(payload, null, 2), `checklist-backup-${timeStamp}.json`);
-    setStatus('Backup exported');
+    setStatus('Exported.');
     // localStorage, not AppState: a tracking timestamp doesn't belong in backups.
     const lastExportDate = window.localStorage.getItem(LAST_EXPORT_STORAGE_KEY);
     track('checklist_exported', {
@@ -1566,10 +1649,10 @@ const App = () => {
       // Old backups carry no rollover date; stamping today keeps the imported
       // tasks from being swept into history on the next rollover check.
       setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
-      setStatus('Backup imported');
+      setStatus('Imported.');
       track('checklist_imported', { sheet_count: normalizedSheets.length });
     } catch {
-      window.alert('The selected file is not a valid checklist backup.');
+      window.alert('This file doesn\'t look like a checklist backup.');
       setStatus('Import failed');
       track('import_failed');
     } finally {
@@ -1617,7 +1700,7 @@ const App = () => {
       },
       ...currentIdeas,
     ]);
-    setStatus('Idea saved');
+    setStatus('Idea added.');
     track('idea_added', { has_place: place !== null });
   };
 
@@ -1652,7 +1735,7 @@ const App = () => {
       setIdeas((currentIdeas) =>
         currentIdeas.map((idea) => (idea.id === targetId ? { ...idea, place: place ?? undefined } : idea)),
       );
-      setStatus(place ? 'Idea place updated' : 'Idea place removed');
+      setStatus(place ? 'Place updated.' : 'Place removed.');
       track('idea_place_changed', { removed: place === null });
     }
 
@@ -1742,18 +1825,18 @@ const App = () => {
       ),
     );
     cancelIdeaEdit();
-    setStatus('Idea updated');
+    setStatus('Updated.');
     track('idea_edited');
   };
 
   const deleteIdea = (ideaId: string) => {
     setConfirmState({
       title: 'Delete idea',
-      message: 'Delete this idea?',
+      message: 'This will delete the idea.',
       confirmLabel: 'Delete',
       onConfirm: () => {
         setIdeas((currentIdeas) => currentIdeas.filter((idea) => idea.id !== ideaId));
-        setStatus('Idea deleted');
+        setStatus('Deleted.');
         track('idea_deleted');
       },
     });
@@ -1886,7 +1969,7 @@ const App = () => {
     const taskCount = getDivideAndConquerDraftTaskTexts(draftRows).length;
 
     if (taskCount < MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT) {
-      setStatus(`Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks before sorting`);
+      setStatus(`Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks to sort.`);
       return;
     }
 
@@ -1895,7 +1978,7 @@ const App = () => {
     const newTaskCount = reconciledItems.filter((item) => !knownIds.has(item.id)).length;
     setDivideAndConquerItems(reconciledItems);
     navigateToView('sortBoard');
-    setStatus('Tasks ready to sort');
+    setStatus('Ready to sort.');
     track('task_sorting_started', { task_count: taskCount });
     if (newTaskCount > 0) {
       track('tasks_added', { new_task_count: newTaskCount });
@@ -1915,7 +1998,7 @@ const App = () => {
     setDraggedTaskId(null);
     setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
-    setStatus('Sorting board cleared');
+    setStatus('Board cleared.');
     track('sort_board_cleared', {
       cleared_task_count: divideAndConquerItems.filter(
         (item) => currentFocusTaskIds.includes(item.id) || isDivideAndConquerQuadrantBucket(item.bucket),
@@ -1929,9 +2012,9 @@ const App = () => {
     }
 
     setConfirmState({
-      title: 'Clear all sorted tasks?',
-      message: 'This will move every task back to the unassigned list and clear the current focus.',
-      confirmLabel: 'Clear all',
+      title: 'Clear all tasks?',
+      message: 'Every task will return to the list, and focus will be cleared.',
+      confirmLabel: 'Clear All',
       onConfirm: clearMatrixQuadrants,
     });
   };
@@ -2097,7 +2180,7 @@ const App = () => {
       [...taskIds.filter((id) => id !== displacedTaskId), taskId].slice(-MAX_CURRENT_FOCUS_TASKS),
     );
     focusSetAtByTaskIdRef.current.set(taskId, Date.now());
-    setStatus('Current focus set');
+    setStatus('Focus set.');
     track('task_set_as_focus');
   };
 
@@ -2116,7 +2199,7 @@ const App = () => {
       currentItems.map((item) => (item.id === taskId ? { ...item, bucket: 'completed' } : item)),
     );
     setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
-    setStatus('Task completed');
+    setStatus('Done.');
     const focusSetAt = focusSetAtByTaskIdRef.current.get(taskId);
     focusSetAtByTaskIdRef.current.delete(taskId);
     track('task_completed', {
@@ -2133,7 +2216,7 @@ const App = () => {
 
     setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
     focusSetAtByTaskIdRef.current.delete(taskId);
-    setStatus('Current focus cleared');
+    setStatus('Focus cleared.');
     track('task_focus_cleared');
   };
 
@@ -2194,7 +2277,7 @@ const App = () => {
         showCompletedDropFeedback(todayCompletedTasks.length + 1);
         track('task_completed', { completion_method: 'drag_and_drop' });
       }
-      setStatus('Task completed');
+      setStatus('Done.');
     }
   };
 
@@ -2264,7 +2347,7 @@ const App = () => {
     moveDivideAndConquerTask(taskId, targetTask.bucket, targetTask.id, placement);
 
     if (targetTask.bucket === 'completed') {
-      setStatus('Task completed');
+      setStatus('Done.');
     }
   };
 
@@ -2314,7 +2397,7 @@ const App = () => {
     return (
       <div className="app-shell loading-screen" role="status" aria-live="polite">
         <span className="loading-spinner" aria-hidden="true" />
-        <span>Loading checklist</span>
+        <span>Loading</span>
       </div>
     );
   }
@@ -2323,105 +2406,54 @@ const App = () => {
     <div className="app-shell">
       <main ref={workspaceRef} className="workspace">
         <section className="top-controls">
+          {renderModeTabs()}
           <div
             className={`controls-row ${activeView === 'checklist' ? 'checklist-controls-row' : ''}`}
           >
             {activeView === 'checklist' ? (
               <>
-                <div ref={planMenuRef} className={`plan-menu-root ${isPlanMenuOpen ? 'menu-open' : ''}`}>
-                  <button
-                    type="button"
-                    className="plan-menu-trigger"
-                    onClick={() => {
-                      setIsSheetMenuOpen(false);
-                      setIsPlanMenuOpen((isOpen) => !isOpen);
-                    }}
-                    aria-haspopup="menu"
-                    aria-expanded={isPlanMenuOpen}
+                <div className="sheet-actions" aria-label="Sheet actions">
+                  <select
+                    className="sheet-switch-select"
+                    aria-label="Switch sheet"
+                    value={activeSheetId}
+                    onChange={(event) => setActiveSheetId(event.target.value)}
                   >
-                    Daily plan
+                    {sheets.map((sheet) => (
+                      <option key={sheet.id} value={sheet.id}>
+                        {sheet.name || 'Untitled'}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="page-nav-link" onClick={handleCreateSheet}>
+                    New Sheet
                   </button>
-                  <div className="plan-options-menu" role="menu" aria-label="Daily plan">
+                  <button type="button" className="page-nav-link" onClick={handleExport}>
+                    Export
+                  </button>
+                  <div className="sheet-menu-wrapper" ref={sheetMenuRef}>
                     <button
                       type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setIsPlanMenuOpen(false);
-                        navigateToView('planner');
-                      }}
+                      className="page-nav-link"
+                      onClick={() => setIsSheetMenuOpen(!isSheetMenuOpen)}
+                      aria-expanded={isSheetMenuOpen}
+                      aria-label="More sheet options"
                     >
-                      <span>Brain dump</span>
-                      <BrainDumpMenuIcon />
+                      ⋯
                     </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        setIsPlanMenuOpen(false);
-                        navigateToView('sortBoard');
-                      }}
-                    >
-                      <span>Task sorter</span>
-                      <TaskSorterMenuIcon />
-                    </button>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="nav-link-button ideas-nav-button"
-                  onClick={() => {
-                    setIsPlanMenuOpen(false);
-                    setIsSheetMenuOpen(false);
-                    navigateToView('ideas');
-                  }}
-                >
-                  Ideas
-                </button>
-                <div ref={sheetMenuRef} className={`sheet-menu-root ${isSheetMenuOpen ? 'menu-open' : ''}`}>
-                  <button
-                    type="button"
-                    className="sheet-menu-toggle"
-                    onClick={() => {
-                      setIsPlanMenuOpen(false);
-                      setIsSheetMenuOpen((isOpen) => !isOpen);
-                    }}
-                    aria-label="Sheet options"
-                    aria-haspopup="menu"
-                    aria-expanded={isSheetMenuOpen}
-                    title="Sheet options"
-                  >
-                    ⋯
-                  </button>
-                  {isSheetMenuOpen ? (
-                    <div className="sheet-options-menu" role="menu" aria-label="Sheet options">
-                      <label className="sheet-switch-menu-item">
-                        <span>Switch sheet</span>
-                        <select
-                          aria-label="Switch sheet"
-                          value={activeSheetId}
-                          onChange={(event) => setActiveSheetId(event.target.value)}
-                        >
-                          {sheets.map((sheet) => (
-                            <option key={sheet.id} value={sheet.id}>
-                              {sheet.name || 'Untitled sheet'}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="sheet-options-divider" role="separator" />
-                      {isRenamingSheet ? (
-                        <div className="sheet-rename-menu-item">
-                          <span>Rename sheet</span>
-                          <input
-                            ref={sheetNameInputRef}
-                            type="text"
-                            value={sheetNameDraft}
-                            onChange={(event) => setSheetNameDraft(event.target.value)}
-                            onBlur={commitSheetRename}
-                            onKeyDown={handleSheetRenameKeyDown}
-                            aria-label="New sheet name"
-                          />
-                          <div className="sheet-rename-actions">
+                    {isSheetMenuOpen && (
+                      <div className="sheet-menu">
+                        {isRenamingSheet ? (
+                          <span className="sheet-rename-inline">
+                            <input
+                              ref={sheetNameInputRef}
+                              type="text"
+                              value={sheetNameDraft}
+                              onChange={(event) => setSheetNameDraft(event.target.value)}
+                              onBlur={commitSheetRename}
+                              onKeyDown={handleSheetRenameKeyDown}
+                              aria-label="New sheet name"
+                            />
                             <button
                               type="button"
                               className="save-action-button"
@@ -2438,43 +2470,28 @@ const App = () => {
                             >
                               Cancel
                             </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button type="button" role="menuitem" onClick={startSheetRename}>
-                          Rename
-                          <Pencil className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
+                          </span>
+                        ) : (
+                          <button type="button" className="sheet-menu-item" onClick={startSheetRename}>
+                            <Pencil size={16} />
+                            <span>Rename</span>
+                          </button>
+                        )}
+                        <button type="button" className="sheet-menu-item" onClick={handleImportClick}>
+                          <Upload size={16} />
+                          <span>Import</span>
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        role="menuitem"
-                        onClick={() => runSheetMenuAction(handleCreateSheet)}
-                      >
-                        New sheet
-                        <Plus className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
-                      </button>
-                      <div className="sheet-options-divider" role="separator" />
-                      <button type="button" role="menuitem" onClick={() => runSheetMenuAction(handleExport)}>
-                        Export
-                        <Upload className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
-                      </button>
-                      <button type="button" role="menuitem" onClick={() => runSheetMenuAction(handleImportClick)}>
-                        Import
-                        <Download className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
-                      </button>
-                      <div className="sheet-options-divider" role="separator" />
-                      <button
-                        type="button"
-                        className="danger-menu-item"
-                        role="menuitem"
-                        onClick={() => runSheetMenuAction(() => handleDeleteSheet(activeSheet.id))}
-                      >
-                        Delete sheet
-                        <Trash2 className="menu-item-icon" size={18} strokeWidth={1.8} aria-hidden="true" />
-                      </button>
-                    </div>
-                  ) : null}
+                        <button
+                          type="button"
+                          className="sheet-menu-item sheet-menu-item-danger"
+                          onClick={() => handleDeleteSheet(activeSheet.id)}
+                        >
+                          <Trash2 size={16} />
+                          <span>Delete</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <input ref={importInputRef} hidden type="file" accept="application/json" onChange={handleImport} />
                 {persistenceFeedback !== 'idle' ? (
@@ -2501,86 +2518,12 @@ const App = () => {
                 ) : null}
               </>
             ) : activeView === 'planner' ? (
-              <>
-                <button
-                  type="button"
-                  className="back-icon-button"
-                  onClick={() => navigateToView('checklist')}
-                  aria-label="Back to checklist"
-                  title="Back to checklist"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M19 12H5M11 18l-6-6 6-6" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="history-icon-button"
-                  onClick={openHistoryView}
-                  aria-label="History"
-                  title="History"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-                    <path d="M3 3v5h5" />
-                    <path d="M12 7v5l3 2" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="forward-icon-button"
-                  onClick={() => navigateToView('sortBoard')}
-                  aria-label="Open task sorter"
-                  title="Open task sorter"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                </button>
-              </>
+              renderWorkTabs('planner')
             ) : activeView === 'sortBoard' ? (
-              <>
-                <button
-                  type="button"
-                  className="back-icon-button"
-                  onClick={() => navigateToView('planner')}
-                  aria-label="Back to daily plan"
-                  title="Back to daily plan"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M19 12H5M11 18l-6-6 6-6" />
-                  </svg>
-                </button>
-                <button type="button" className="nav-link-button" onClick={() => navigateToView('checklist')}>
-                  Checklist
-                </button>
-                <button
-                  type="button"
-                  className="history-icon-button"
-                  onClick={openHistoryView}
-                  aria-label="History"
-                  title="History"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-                    <path d="M3 3v5h5" />
-                    <path d="M12 7v5l3 2" />
-                  </svg>
-                </button>
-              </>
+              renderWorkTabs('sortBoard')
             ) : activeView === 'ideas' ? (
               <>
-                <button
-                  type="button"
-                  className="back-icon-button"
-                  onClick={() => navigateToView('checklist')}
-                  aria-label="Back to checklist"
-                  title="Back to checklist"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M19 12H5M11 18l-6-6 6-6" />
-                  </svg>
-                </button>
+                {renderWorkTabs('ideas')}
                 {persistenceFeedback !== 'idle' ? (
                   <span
                     className={`save-feedback-indicator save-feedback-${persistenceFeedback}`}
@@ -2599,22 +2542,7 @@ const App = () => {
                 ) : null}
               </>
             ) : (
-              <>
-                <button
-                  type="button"
-                  className="back-icon-button"
-                  onClick={() => navigateToView(historyReturnViewRef.current)}
-                  aria-label="Back"
-                  title="Back"
-                >
-                  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                    <path d="M19 12H5M11 18l-6-6 6-6" />
-                  </svg>
-                </button>
-                <button type="button" className="nav-link-button" onClick={() => navigateToView('checklist')}>
-                  Checklist
-                </button>
-              </>
+              renderWorkTabs('history')
             )}
           </div>
         </section>
@@ -2628,7 +2556,7 @@ const App = () => {
             >
               <div className="dq-split-tasks">
                 <div className="dq-editor-shell">
-              <h1 id="dq-title">Daily plan</h1>
+              <h1 id="dq-title">Plan Your Day</h1>
               <div
                 ref={divideAndConquerEditorRef}
                 className="dq-task-editor"
@@ -2666,11 +2594,11 @@ const App = () => {
                   disabled={!canSortDivideAndConquerTasks}
                   title={
                     canSortDivideAndConquerTasks
-                      ? 'Prioritize tasks'
-                      : `Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks to prioritize`
+                      ? 'Prioritize'
+                      : `Add at least ${MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT} tasks to sort`
                   }
                 >
-                  Prioritize tasks
+                  Prioritize
                   <img
                     className="sort-out-button-icon"
                     src="https://cdn-icons-png.flaticon.com/512/8989/8989469.png"
@@ -2725,7 +2653,7 @@ const App = () => {
           >
             <div className="sort-board-shell">
               <div className="sort-board-intro">
-                <h1 id="sort-board-title">Prioritize your day</h1>
+                <h1 id="sort-board-title">Prioritize</h1>
                 <div className="sort-board-intro-actions">
                   <p
                     className={`sort-focus-line ${currentFocusTasks.length > 0 ? 'has-focus' : ''} ${
@@ -2735,7 +2663,7 @@ const App = () => {
                     onDrop={handleCurrentFocusDrop}
                     aria-live="polite"
                   >
-                    <span className="sort-focus-label">Main task now:</span>
+                    <span className="sort-focus-label">Focus:</span>
                     {currentFocusTasks.length > 0 ? (
                       currentFocusTasks.map((task) =>
                         editingDivideAndConquerTaskId === task.id ? (
@@ -2801,12 +2729,12 @@ const App = () => {
                         ),
                       )
                     ) : (
-                      <span className="sort-focus-text">drag a task here.</span>
+                      <span className="sort-focus-text">Drag a task here.</span>
                     )}
                     {draggedTaskId &&
                     currentFocusTasks.length > 0 &&
                     currentFocusTasks.length < MAX_CURRENT_FOCUS_TASKS ? (
-                      <span className="sort-focus-hint">drop a second task here.</span>
+                      <span className="sort-focus-hint">Or drop another here.</span>
                     ) : null}
                   </p>
                 </div>
@@ -2825,8 +2753,8 @@ const App = () => {
                       divideAndConquerBuckets.unassigned.map(renderDivideAndConquerTaskCard)
                     ) : (
                       <div className="sort-empty-state" role="status" aria-live="polite">
-                        <strong>No tasks left.</strong>
-                        <span>Go ahead and do them.</span>
+                        <strong>All done.</strong>
+                        <span>Time to get to work.</span>
                       </div>
                     )}
                   </div>
@@ -2834,21 +2762,24 @@ const App = () => {
 
                 <div className="sort-matrix-and-completion">
                   <div className="sort-board-toolbar">
-                    <button
-                      type="button"
-                      className="sort-clear-all-button"
-                      onClick={handleClearMatrixQuadrants}
-                      disabled={!hasSortableStateToClear}
-                      aria-label="Clear all sorted tasks"
-                      title="Clear all sorted tasks"
-                    >
-                      clear all
-                    </button>
                   </div>
-                  <div className="sort-matrix-wrap">
+                  <div className={`sort-matrix-wrap ${matrixLabelMode === 'eisenhower' ? 'mode-eisenhower' : ''}`}>
                     <div className="sort-matrix-top-labels" aria-hidden="true">
-                      <span className="sort-column-header">Unattractive</span>
-                      <span className="sort-column-header">Attractive</span>
+                      {matrixLabelMode === 'eisenhower' ? (
+                        <>
+                          <span className="sort-column-header sort-outer-label-red">
+                            {MATRIX_QUADRANT_LABELS.eisenhower.topLeft}
+                          </span>
+                          <span className="sort-column-header sort-outer-label-orange">
+                            {MATRIX_QUADRANT_LABELS.eisenhower.topRight}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="sort-column-header">Unattractive</span>
+                          <span className="sort-column-header">Attractive</span>
+                        </>
+                      )}
                     </div>
                     <div className="sort-axis-labels" aria-hidden="true">
                       <span className="sort-axis-label">Productive</span>
@@ -2874,7 +2805,7 @@ const App = () => {
                             'productive-attractive',
                             divideAndConquerBuckets['productive-attractive'],
                           )}
-                          <div className="sort-cell-footer">(Must To-Do)</div>
+                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.topLeft}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-top-right ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -2894,7 +2825,7 @@ const App = () => {
                             'productive-unattractive',
                             divideAndConquerBuckets['productive-unattractive'],
                           )}
-                          <div className="sort-cell-footer">(Enjoy)</div>
+                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.topRight}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-bottom-left ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -2914,7 +2845,7 @@ const App = () => {
                             'unproductive-attractive',
                             divideAndConquerBuckets['unproductive-attractive'],
                           )}
-                          <div className="sort-cell-footer">(Avoid)</div>
+                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.bottomLeft}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-bottom-right ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -2934,10 +2865,20 @@ const App = () => {
                             'unproductive-unattractive',
                             divideAndConquerBuckets['unproductive-unattractive'],
                           )}
-                          <div className="sort-cell-footer">(Eliminate)</div>
+                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.bottomRight}</div>
                         </div>
                       </div>
                     </div>
+                    {matrixLabelMode === 'eisenhower' ? (
+                      <div className="sort-matrix-bottom-labels" aria-hidden="true">
+                        <span className="sort-column-header sort-outer-label-blue">
+                          {MATRIX_QUADRANT_LABELS.eisenhower.bottomLeft}
+                        </span>
+                        <span className="sort-column-header sort-outer-label-green">
+                          {MATRIX_QUADRANT_LABELS.eisenhower.bottomRight}
+                        </span>
+                      </div>
+                    ) : null}
                     <section
                       ref={completedZoneRef}
                       className={`sort-completion-zone ${isCompletedMagnetic ? 'magnetic' : ''}`}
@@ -3008,7 +2949,7 @@ const App = () => {
                       addIdea();
                     }
                   }}
-                  placeholder="Write an idea…"
+                  placeholder="New idea…"
                   aria-label="New idea"
                 />
                 <button type="submit" className="idea-add-button" disabled={!ideaDraft.trim()}>
@@ -3017,7 +2958,7 @@ const App = () => {
               </form>
               <div className="idea-list">
                 {ideas.length === 0 ? (
-                  <p className="idea-empty">Ideas you write are kept here.</p>
+                  <p className="idea-empty">Your ideas live here.</p>
                 ) : (
                   ideas.map((idea) => (
                     <div key={idea.id} className="idea-item">
@@ -3093,7 +3034,7 @@ const App = () => {
         ) : activeView === 'history' ? (
           <section className="history-page" aria-labelledby="history-title">
             <div className="history-shell">
-              <h1 id="history-title">Daily history</h1>
+              <h1 id="history-title">History</h1>
               <article className="history-day is-today">
                 <header className="history-day-header">
                   <h2>Today</h2>
@@ -3116,7 +3057,7 @@ const App = () => {
                       'completed',
                       'Completed',
                       record.completed,
-                      'Nothing was completed.',
+                      'Nothing completed.',
                       { date: record.date, kind: 'completed' },
                     )}
                     {renderHistoryColumn(
@@ -3132,7 +3073,7 @@ const App = () => {
               ))}
               {dailyHistory.length === 0 ? (
                 <div className="history-empty" role="status">
-                  No past days recorded yet. History appears after the first midnight renewal.
+                  No history yet. Completed and unfinished tasks appear here each day.
                 </div>
               ) : null}
             </div>
@@ -3206,7 +3147,7 @@ const App = () => {
                     onDeleteRow={(rowId) => {
                       setConfirmState({
                         title: 'Delete row',
-                        message: 'Delete this row from the checklist?',
+                        message: 'This will remove the row.',
                         confirmLabel: 'Delete',
                         onConfirm: () => {
                           updateSectionRows(section.id, (rows) =>
@@ -3326,7 +3267,7 @@ const App = () => {
             }}
           >
             <div className="place-dialog-header">
-              <h2 id="place-picker-title">Where is it?</h2>
+              <h2 id="place-picker-title">Choose a Place</h2>
               {ideaPlaces.length > 0 ? (
                 <button type="button" className="text-button" onClick={() => setIsEditingPlaces((value) => !value)}>
                   {isEditingPlaces ? 'Done' : 'Edit'}
@@ -3334,7 +3275,7 @@ const App = () => {
               ) : null}
             </div>
             {ideaPlaces.length === 0 ? (
-              <p className="place-empty">Add a place below — it stays in this menu for next time.</p>
+              <p className="place-empty">Add a place — it'll be here next time.</p>
             ) : (
               <div className="place-list">
                 {ideaPlaces.map((place, index) =>

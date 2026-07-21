@@ -269,9 +269,9 @@ export const PdfViewer = ({ src, title }: PdfViewerProps) => {
   if (loadFailed) {
     return (
       <div className="pdf-viewer pdf-viewer-message" role="status">
-        <p>Could not load the PDF.</p>
+        <p>Couldn't load the PDF.</p>
         <a href={src} target="_blank" rel="noreferrer">
-          Open it in a new tab instead
+          Open in New Tab
         </a>
       </div>
     );

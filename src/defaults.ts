@@ -63,7 +63,7 @@ export const createSheet = (name?: string): ChecklistSheet => {
 
   return {
     id: makeId(),
-    name: name?.trim() || 'New Checklist',
+    name: name?.trim() || 'My Checklist',
     createdAt: now,
     updatedAt: now,
     selectedYear,

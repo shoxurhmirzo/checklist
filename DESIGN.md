@@ -106,27 +106,36 @@ Typography rules:
 
 ### 5.2 Color System
 
-The default palette is intentionally neutral:
+The default palette is intentionally neutral. All colors serve a functional purpose:
 
-- Background: white.
-- Primary text: near-black.
-- Borders: black or light gray depending on hierarchy.
-- Hover state: soft blue-gray fill.
-- Positive state: muted green.
-- Negative state: muted red.
-- Destructive state: deeper red.
+**Semantic colors:**
+- Primary text: `#111` (near-black) for all headings and main content.
+- Secondary text: `#333` for descriptions, `#666` for empty states.
+- Borders: `#ddd` (light gray) for boxes and separators, `#e1e8eb` for input edges.
+- Hover state: soft blue-gray fill on buttons and interactive elements.
 
-The app avoids decorative color use. Color should communicate state, action, or emphasis.
+**Functional colors (state & feedback):**
+- Positive/completed: `#2f7a3d` (muted green) for success states and checkmarks.
+- Destructive: `#a04545` (muted red) for undone items and destructive actions.
+- Matrix quadrants: red `#e03e3e`, orange `#e8930c`, blue `#4772fa`, green `#2ea44f` (for Eisenhower mode labels only).
+
+**Anti-patterns:**
+- Do NOT use color decoratively or for visual hierarchy (use size, weight, spacing instead).
+- Do NOT apply quadrant colors to text outside the sorter matrix.
+- Do NOT color page titles (all titles are black `#111`).
+- Empty states are always `#666` text, never colored or emphasized.
 
 ### 5.3 Shape and Borders
 
-The design language is box-based and sharply edged:
+The design language follows **Apple's modern iOS/macOS aesthetic** with consistent rounded corners throughout:
 
-- Most controls use `border-radius: 0`.
-- Inputs, buttons, menus, and table cells are square or rectangular.
-- The checklist itself is intentionally grid-like and paper-like.
+- **Navigation controls** (mode bar, work tabs, action buttons): fully rounded capsules (`border-radius: 999px`)
+- **Input fields** (text inputs, selects, date pickers): `border-radius: 6px`
+- **Panels and cards** (task editor, history cards, focus boxes): `border-radius: 10px`
+- **Buttons and interactive elements**: `border-radius: 6-10px` depending on size
+- **Menus and dropdowns**: `border-radius: 8px`
 
-Rounded corners are generally avoided unless they are part of a subtle shell or container treatment.
+This creates a modern, friendly interface that feels cohesive and Apple-like, while maintaining usability. The checklist grid retains its structured appearance with borders between cells for readability.
 
 ### 5.4 Motion
 
@@ -136,6 +145,7 @@ Motion is subtle and functional:
 - Save feedback uses a brief loading/saved animation.
 - Checklist cell menus animate in quickly.
 - Hover transitions are short and consistent.
+- The mode-switch thumb slides between segments (200ms ease-out); it is disabled under `prefers-reduced-motion`.
 
 The motion is not decorative; it exists to make state changes readable.
 
@@ -341,7 +351,22 @@ The current interaction language favors:
 - Soft blue-gray hover fills for controls.
 - Stronger color changes for destructive or confirmatory actions.
 
-### 10.3 Save Feedback
+### 10.3 Empty States
+
+When a view has no content, show a calm, centered empty state message instead of blank space or a placeholder.
+
+Empty state rules:
+
+- Text color: always `#666` (neutral gray).
+- Font size: `0.95rem`.
+- Padding: `1.2rem` (vertical).
+- No color emphasis or icons.
+- Positioned at the natural reading point (center of content area).
+- Examples: "Ideas you write are kept here." (Ideas page), "No past days recorded yet." (History on first load).
+
+This keeps empty states discoverable without being loud or breaking the calm aesthetic.
+
+### 10.4 Save Feedback
 
 The app shows explicit persistence feedback:
 
@@ -351,7 +376,7 @@ The app shows explicit persistence feedback:
 
 This is important because the app persists locally and the user needs confidence that state has been written.
 
-### 10.4 Keyboard and Escaping
+### 10.5 Keyboard and Escaping
 
 The app supports keyboard-friendly interactions where practical:
 
@@ -359,7 +384,7 @@ The app supports keyboard-friendly interactions where practical:
 - Enter should commit obvious form actions.
 - F toggles fullscreen checklist mode.
 
-### 10.5 Drag and Drop
+### 10.6 Drag and Drop
 
 The sorter relies on drag and drop to move tasks between states. The design should make drop targets obvious, especially the focus area and completion zone.
 
@@ -525,9 +550,9 @@ The project should continue to follow these rules:
 - Keep the checklist as the anchor of the product.
 - Use structure and spacing to reduce cognitive load.
 - Make secondary actions discoverable but not noisy.
-- Prefer stable geometry over decorative styling.
+- **Embrace Apple's modern design language**: rounded corners, clean hierarchy, soft shadows, consistent spacing.
 - Use color for state, not decoration.
-- Preserve a document-like, paper-like feel where it improves comprehension.
+- Let the modern rounded aesthetic make the app feel polished and friendly.
 - Avoid adding visual complexity unless it improves task completion.
 
 ## 17. Implementation Notes

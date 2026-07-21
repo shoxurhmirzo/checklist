@@ -123,7 +123,7 @@ export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
   }));
 
 const normalizeSavedSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
-  sheets.length > 0 ? normalizeSheets(sheets) : [createSheet('Checklist 1')];
+  sheets.length > 0 ? normalizeSheets(sheets) : [createSheet('My Checklist')];
 
 const normalizeDivideAndConquerText = (value: unknown) =>
   typeof value === 'string' ? value : DEFAULT_DIVIDE_AND_CONQUER_TEXT;
