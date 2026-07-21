@@ -465,6 +465,8 @@ const App = () => {
   const handlePlanSplitPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
     setIsPlanSplitDragging(true);
+    const startPercent = planSplitPercent;
+    let latestPercent = planSplitPercent;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const container = planSplitRef.current;
@@ -476,11 +478,15 @@ const App = () => {
       const rect = container.getBoundingClientRect();
 
       if (rect.width > 0) {
-        setPlanSplitPercent(clampPlanSplitPercent(((moveEvent.clientX - rect.left) / rect.width) * 100));
+        latestPercent = clampPlanSplitPercent(((moveEvent.clientX - rect.left) / rect.width) * 100);
+        setPlanSplitPercent(latestPercent);
       }
     };
     const handlePointerUp = () => {
       setIsPlanSplitDragging(false);
+      if (Math.round(latestPercent) !== Math.round(startPercent)) {
+        track('plan_split_resized', { split_percent: Math.round(latestPercent) });
+      }
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
       window.removeEventListener('pointercancel', handlePointerUp);
@@ -815,7 +821,8 @@ const App = () => {
             saveFeedbackTimeoutRef.current = null;
           }, 1200);
         })
-        .catch(() => {
+        .catch((error: unknown) => {
+          trackError(error, { stage: 'save_app_state' });
           setPersistenceFeedback('idle');
           setStatus('Save failed. Export a backup after your next successful save.');
         });
@@ -1251,6 +1258,7 @@ const App = () => {
 
     if (deletedTask) {
       updateDraftRowMatchingText(deletedTask.text, null);
+      track('task_deleted', { bucket: deletedTask.bucket });
     }
 
     if (editingDivideAndConquerTaskId === taskId) {
@@ -1420,6 +1428,7 @@ const App = () => {
     if (activeSheet && sheetNameDraft !== activeSheet.name) {
       updateActiveSheet((sheet) => ({ ...sheet, name: sheetNameDraft }));
       setStatus('Sheet renamed');
+      track('checklist_sheet_renamed');
     }
 
     setIsRenamingSheet(false);
@@ -1680,6 +1689,7 @@ const App = () => {
 
     if (!existing) {
       setIdeaPlaces((currentPlaces) => [...currentPlaces, name]);
+      track('idea_place_created', { place_count: ideaPlaces.length + 1 });
     }
 
     setNewPlaceDraft('');
@@ -1906,6 +1916,11 @@ const App = () => {
     setDragInsertionTarget(null);
     setIsCompletedMagnetic(false);
     setStatus('Sorting board cleared');
+    track('sort_board_cleared', {
+      cleared_task_count: divideAndConquerItems.filter(
+        (item) => currentFocusTaskIds.includes(item.id) || isDivideAndConquerQuadrantBucket(item.bucket),
+      ).length,
+    });
   };
 
   const handleClearMatrixQuadrants = () => {
@@ -2066,6 +2081,7 @@ const App = () => {
 
     if (displacedTask && displacedTask.bucket !== 'completed') {
       showCompletedDropFeedback(todayCompletedTasks.length + 1);
+      track('task_completed', { completion_method: 'focus_displaced' });
     }
 
     if (displacedTaskId) {
@@ -2118,6 +2134,7 @@ const App = () => {
     setCurrentFocusTaskIds((taskIds) => taskIds.filter((id) => id !== taskId));
     focusSetAtByTaskIdRef.current.delete(taskId);
     setStatus('Current focus cleared');
+    track('task_focus_cleared');
   };
 
   const handleDivideAndConquerDragStart = (event: React.DragEvent<HTMLElement>, taskId: string) => {
@@ -3197,6 +3214,7 @@ const App = () => {
                               .filter((row) => row.id !== rowId)
                               .map((row, order) => ({ ...row, order })),
                           );
+                          track('checklist_row_deleted', { section_id: section.id });
                         },
                       });
                     }}
@@ -3497,6 +3515,7 @@ const SectionBlock = ({
   const handleClearMark = (rowId: string, columnIndex: number) => {
     onClearMark(rowId, columnIndex);
     setOpenMenuCell(null);
+    track('checklist_mark_cleared', { section_id: section.id });
   };
 
   const handleRowLabelKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {

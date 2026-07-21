@@ -1,5 +1,6 @@
 import { PointerEvent as ReactPointerEvent, useEffect, useRef, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
+import { track, trackError } from './analytics';
 import * as pdfjs from 'pdfjs-dist';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -47,6 +48,10 @@ const loadPdf = (src: string): Promise<LoadedPdf> => {
       dimensions.push({ width: viewport.width, height: viewport.height });
     }
 
+    // Inside the cached parse, not the component: fires once per real
+    // download/parse per session instead of on every planner remount.
+    track('plan_pdf_opened', { page_count: doc.numPages });
+
     return { doc, dimensions };
   });
 
@@ -90,8 +95,9 @@ export const PdfViewer = ({ src, title }: PdfViewerProps) => {
         setDoc(loadedDoc);
         setPageDimensions(dimensions);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!cancelled) {
+          trackError(error, { stage: 'plan_pdf_load' });
           setLoadFailed(true);
         }
       });
