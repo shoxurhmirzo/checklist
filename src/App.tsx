@@ -25,7 +25,6 @@ import {
   Plus,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react';
 import {
   COLUMN_COUNT,
@@ -1341,7 +1340,10 @@ const App = () => {
 
   const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask, index?: number) => {
     const isSourceTaskPlaceholder = draggedTaskId === task.id;
-    const isEditing = editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
+    // Only the numbered task list is editable; quadrant and completed cards
+    // stay drag-only (edit them from the list or the Focus zone).
+    const canEdit = typeof index === 'number';
+    const isEditing = canEdit && editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
     const insertionClass =
       dragInsertionTarget?.taskId === task.id ? `insert-${dragInsertionTarget.placement}` : '';
 
@@ -1359,7 +1361,7 @@ const App = () => {
         onDragLeave={(event) => handleDivideAndConquerTaskCardDragLeave(event, task.id)}
         onDrop={(event) => handleDivideAndConquerTaskCardDrop(event, task)}
         onDoubleClick={() => {
-          if (!isEditing) {
+          if (canEdit && !isEditing) {
             setEditingDivideAndConquerTaskId(task.id);
           }
         }}
@@ -1397,19 +1399,21 @@ const App = () => {
           <>
             <span className="sort-task-card-text">{task.text}</span>
             <span className="sort-task-card-actions">
-              <button
-                type="button"
-                className="sort-task-card-action text-action"
-                aria-label="Edit task"
-                draggable={false}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setEditingDivideAndConquerTaskId(task.id);
-                }}
-                onDragStart={(event) => event.preventDefault()}
-              >
-                Edit
-              </button>
+              {canEdit ? (
+                <button
+                  type="button"
+                  className="sort-task-card-action text-action"
+                  aria-label="Edit task"
+                  draggable={false}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setEditingDivideAndConquerTaskId(task.id);
+                  }}
+                  onDragStart={(event) => event.preventDefault()}
+                >
+                  Edit
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="sort-task-card-action text-action danger"
@@ -1432,7 +1436,8 @@ const App = () => {
 
   const renderDivideAndConquerQuadrantItems = (tasks: DivideAndConquerTask[]) =>
     tasks.length > 0 ? (
-      tasks.map(renderDivideAndConquerTaskCard)
+      // Don't forward map's index: an index marks the card editable.
+      tasks.map((task) => renderDivideAndConquerTaskCard(task))
     ) : (
       <div className="sort-cell-empty-state" aria-hidden="true">
         {Array.from({ length: 3 }, (_, index) => (
@@ -2717,6 +2722,7 @@ const App = () => {
                             draggable
                             onDragStart={(event) => handleDivideAndConquerDragStart(event, task.id)}
                             onDragEnd={handleDivideAndConquerDragEnd}
+                            onDoubleClick={() => setEditingDivideAndConquerTaskId(task.id)}
                           >
                             <span className="sort-focus-text" title={task.text}>
                               {task.text}
@@ -2728,9 +2734,8 @@ const App = () => {
                                 onClick={() => setEditingDivideAndConquerTaskId(task.id)}
                                 onDragStart={(event) => event.preventDefault()}
                                 aria-label={`Edit focus task ${task.text}`}
-                                title="Edit this focus task"
                               >
-                                <Pencil className="sort-focus-action-icon" size={14} strokeWidth={2} aria-hidden="true" />
+                                Edit
                               </button>
                               <button
                                 type="button"
@@ -2738,9 +2743,8 @@ const App = () => {
                                 onClick={() => completeFocusTask(task.id)}
                                 onDragStart={(event) => event.preventDefault()}
                                 aria-label={`Complete focus task ${task.text}`}
-                                title="Complete this focus task"
                               >
-                                <Check className="sort-focus-action-icon" size={15} strokeWidth={2.4} aria-hidden="true" />
+                                Done
                               </button>
                               <button
                                 type="button"
@@ -2748,9 +2752,8 @@ const App = () => {
                                 onClick={() => clearFocusTask(task.id)}
                                 onDragStart={(event) => event.preventDefault()}
                                 aria-label={`Clear focus task ${task.text}`}
-                                title="Clear this focus task"
                               >
-                                <X className="sort-focus-action-icon" size={15} strokeWidth={2.4} aria-hidden="true" />
+                                Remove
                               </button>
                             </span>
                           </span>
@@ -2936,7 +2939,7 @@ const App = () => {
                         </div>
                       </div>
                       <div className="sort-completion-list">
-                        {completedTasks.map(renderDivideAndConquerTaskCard)}
+                        {completedTasks.map((task) => renderDivideAndConquerTaskCard(task))}
                       </div>
                     </section>
                   </div>

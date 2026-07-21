@@ -1324,13 +1324,11 @@ button:focus-visible {
   font-style: italic;
 }
 
-.sort-clear-all-button,
-.sort-focus-action-button {
+.sort-clear-all-button {
   display: none;
 }
 
-.sort-clear-all-button:hover,
-.sort-focus-action-button:hover {
+.sort-clear-all-button:hover {
   color: #0056B3;
   background: transparent;
 }
@@ -1343,24 +1341,55 @@ button:focus-visible {
   text-decoration-color: transparent;
 }
 
+/* Same fade-in text actions as the task cards. */
 .sort-focus-actions {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.9rem;
   flex: 0 0 auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+
+.sort-focus-item:hover .sort-focus-actions,
+.sort-focus-item:focus-within .sort-focus-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sort-focus-item.dragging .sort-focus-actions {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sort-focus-action-button {
-  display: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: #0071E3;
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.sort-focus-action-button.edit:hover {
-  background: #E8E8ED;
+.sort-focus-action-button:hover {
+  color: #0056B3;
+  background: none;
 }
 
-.sort-focus-action-icon {
-  display: block;
+/* Apple text-button convention: blue actions, semibold for the primary
+   ("Done"), red only for the destructive one. */
+.sort-focus-action-button.complete {
+  color: #0071E3;
+  font-weight: 600;
+}
+
+.sort-focus-action-button.clear {
+  color: #FF3B30;
 }
 
 .sort-focus-input {
@@ -2943,10 +2972,13 @@ thead th {
 
 .save-action-button:hover,
 .history-save-button:not(:disabled):hover,
-.history-complete-button:hover,
-.sort-focus-action-button.complete:hover {
+.history-complete-button:hover {
   background: #D4F1D4 !important;
   color: #2F7A3D !important;
+}
+
+.sort-focus-action-button.complete:hover {
+  color: #0056B3;
 }
 
 .cancel-action-button {
@@ -2963,11 +2995,13 @@ thead th {
   box-shadow: none !important;
 }
 
-.row-delete-button:hover,
-.sort-task-card-action.danger:hover,
-.sort-focus-action-button.clear:hover {
+.row-delete-button:hover {
   background: #FBEFEF !important;
   color: #FF3B30 !important;
+}
+
+.sort-focus-action-button.clear:hover {
+  color: #D70015;
 }
 
 .cell-mark-option.plus-option:hover,
