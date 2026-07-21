@@ -3064,10 +3064,11 @@ thead th {
 .idea-number {
   flex: 0 0 auto;
   min-width: 0;
-  color: #D2D2D7;
-  font-size: 0.75rem;
+  color: #A1A1A6;
+  font-size: 0.8125rem;
   font-weight: 400;
   letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .idea-text {
@@ -3124,8 +3125,8 @@ thead th {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.15rem 0.6rem;
-  color: #D2D2D7;
-  font-size: 0.7rem;
+  color: #6E6E73;
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -3342,7 +3343,7 @@ thead th {
   color: #6E6E73;
   padding: 0;
   margin-left: 0.25rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   letter-spacing: 0.03em;
 }
