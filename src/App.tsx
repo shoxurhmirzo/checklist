@@ -2688,6 +2688,9 @@ const App = () => {
               <div className="sort-board-intro">
                 <h1 id="sort-board-title">Prioritize</h1>
                 <div className="sort-board-intro-actions">
+                  <span className="sort-focus-label" id="sort-focus-label">
+                    Focus
+                  </span>
                   <p
                     className={`sort-focus-line ${currentFocusTasks.length > 0 ? 'has-focus' : ''} ${
                       draggedTaskId ? 'drop-ready' : ''
@@ -2695,8 +2698,8 @@ const App = () => {
                     onDragOver={handleDivideAndConquerDragOver}
                     onDrop={handleCurrentFocusDrop}
                     aria-live="polite"
+                    aria-labelledby="sort-focus-label"
                   >
-                    <span className="sort-focus-label">Focus</span>
                     {currentFocusTasks.length > 0 ? (
                       currentFocusTasks.map((task) =>
                         editingDivideAndConquerTaskId === task.id ? (

@@ -1234,13 +1234,15 @@ button:focus-visible {
 
 /* Apple inset-grouped-list style: no nested borders — a quiet section
    header and filled rows spanning the card's content width. */
+/* Symmetric padding offset by negative margins keeps the rows aligned
+   with the label while giving the drop highlight breathing room. */
 .sort-focus-line {
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.5rem;
-  margin: 1.25rem 0 0;
-  padding: 0;
+  margin: 0 -0.4rem;
+  padding: 0.4rem;
   border: 0;
   border-radius: 12px;
   background: transparent;
@@ -1255,7 +1257,8 @@ button:focus-visible {
 }
 
 .sort-focus-label {
-  flex: 0 0 auto;
+  display: block;
+  margin: 1.25rem 0 0.35rem;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -1317,10 +1320,23 @@ button:focus-visible {
   flex: 0 0 auto;
 }
 
+/* The extra-capacity hint renders only mid-drag; it reads as an open
+   drop slot, not a floating caption. */
 .sort-focus-hint {
-  flex: 0 0 auto;
-  color: #6E6E73;
-  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: 10px;
+  background: #FFFFFF;
+  color: #0071E3;
+  font-size: 0.9rem;
+}
+
+/* Empty drop target lights up as the receiving slot while dragging. */
+.sort-focus-line.drop-ready:not(.has-focus) .sort-focus-text {
+  background: #FFFFFF;
+  color: #0071E3;
 }
 
 .sort-clear-all-button {
