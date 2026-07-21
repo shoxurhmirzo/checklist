@@ -3384,7 +3384,7 @@ const App = () => {
             </form>
             {placePicker.mode === 'new' ? (
               <div className="confirm-actions">
-                <button type="button" className="plain-button cancel-action-button" onClick={() => dismissPlacePicker()}>
+                <button type="button" className="plain-button" onClick={() => dismissPlacePicker()}>
                   Skip
                 </button>
               </div>

@@ -274,12 +274,13 @@ button {
   color: inherit;
 }
 
-.sheet-menu-item-danger {
+/* Compound selector so the broad .top-controls button color can't win. */
+.sheet-menu-item.sheet-menu-item-danger {
   color: #FF3B30;
 }
 
-.sheet-menu-item-danger:hover,
-.sheet-menu-item-danger:focus-visible {
+.sheet-menu-item.sheet-menu-item-danger:hover,
+.sheet-menu-item.sheet-menu-item-danger:focus-visible {
   background: rgba(215, 0, 21, 0.08);
   color: #FF3B30;
 }
