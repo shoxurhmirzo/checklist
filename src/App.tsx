@@ -1170,7 +1170,7 @@ const App = () => {
   ) => (
     <div className={`history-column ${kind}`}>
       <h3>
-        {title} <span className="history-column-count">({entries.length})</span>
+        {title} <span className="history-column-count">{entries.length}</span>
       </h3>
       {entries.length > 0 ? (
         <ul className="history-task-list">
@@ -1319,7 +1319,7 @@ const App = () => {
     }
   };
 
-  const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask) => {
+  const renderDivideAndConquerTaskCard = (task: DivideAndConquerTask, index?: number) => {
     const isSourceTaskPlaceholder = draggedTaskId === task.id;
     const isEditing = editingDivideAndConquerTaskId === task.id && !isSourceTaskPlaceholder;
     const insertionClass =
@@ -1347,6 +1347,11 @@ const App = () => {
           <span />
           <span />
         </span>
+        {typeof index === 'number' ? (
+          <span className="sort-task-number" aria-hidden="true">
+            {index + 1}.
+          </span>
+        ) : null}
         {isEditing ? (
           <input
             className="sort-task-card-input"
@@ -2741,24 +2746,18 @@ const App = () => {
               </div>
 
               <div className="sort-board-layout">
-                <aside
-                  className="sort-task-panel"
+                <div
+                  className="sort-unassigned-list"
                   onDragOver={handleDivideAndConquerDragOver}
                   onDrop={(event) => handleDivideAndConquerDrop(event, 'unassigned')}
-                  aria-label="Task list"
+                  aria-label="Unassigned tasks"
                 >
-                  <div className="sort-task-panel-title">Tasks</div>
-                  <div className="sort-task-list">
-                    {divideAndConquerBuckets.unassigned.length > 0 ? (
-                      divideAndConquerBuckets.unassigned.map(renderDivideAndConquerTaskCard)
-                    ) : (
-                      <div className="sort-empty-state" role="status" aria-live="polite">
-                        <strong>All done.</strong>
-                        <span>Time to get to work.</span>
-                      </div>
-                    )}
-                  </div>
-                </aside>
+                  {divideAndConquerBuckets.unassigned.length > 0 ? (
+                    divideAndConquerBuckets.unassigned.map((task, index) =>
+                      renderDivideAndConquerTaskCard(task, index)
+                    )
+                  ) : null}
+                </div>
 
                 <div className="sort-matrix-and-completion">
                   <div className="sort-board-toolbar">
@@ -2974,20 +2973,6 @@ const App = () => {
                             {idea.place ? `· ${idea.place}` : '· add place'}
                           </button>
                         </span>
-                        <span className="idea-times">
-                          <time dateTime={idea.createdAt}>{formatIdeaTimestamp(idea.createdAt)}</time>
-                          {idea.updatedAt ? (
-                            <time dateTime={idea.updatedAt}>edited {formatIdeaTimestamp(idea.updatedAt)}</time>
-                          ) : null}
-                        </span>
-                        <button
-                          type="button"
-                          className="idea-delete"
-                          onClick={() => deleteIdea(idea.id)}
-                          aria-label="Delete idea"
-                        >
-                          ×
-                        </button>
                       </div>
                       {editingIdeaId === idea.id ? (
                         <textarea
@@ -3025,6 +3010,22 @@ const App = () => {
                           {idea.text}
                         </button>
                       )}
+                      <div className="idea-footer">
+                        <span className="idea-times">
+                          <time dateTime={idea.createdAt}>{formatIdeaTimestamp(idea.createdAt)}</time>
+                          {idea.updatedAt ? (
+                            <time dateTime={idea.updatedAt}>edited {formatIdeaTimestamp(idea.updatedAt)}</time>
+                          ) : null}
+                        </span>
+                        <button
+                          type="button"
+                          className="idea-delete"
+                          onClick={() => deleteIdea(idea.id)}
+                          aria-label="Delete idea"
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -3243,7 +3244,7 @@ const App = () => {
               className="checklist-fullscreen-button"
               onClick={() => void toggleChecklistFullscreen()}
               aria-label={isChecklistFullscreen ? 'Exit fullscreen checklist' : 'Open fullscreen checklist'}
-              title={isChecklistFullscreen ? 'Exit fullscreen (F)' : 'Fullscreen checklist (F)'}
+              title={isChecklistFullscreen ? 'Exit fullscreen — F' : 'Fullscreen checklist — F'}
             >
               F
             </button>
@@ -3266,13 +3267,16 @@ const App = () => {
               }
             }}
           >
+            <button
+              type="button"
+              className="dialog-close-button"
+              onClick={dismissPlacePicker}
+              aria-label="Close dialog"
+            >
+              ✕
+            </button>
             <div className="place-dialog-header">
               <h2 id="place-picker-title">Choose a Place</h2>
-              {ideaPlaces.length > 0 ? (
-                <button type="button" className="text-button" onClick={() => setIsEditingPlaces((value) => !value)}>
-                  {isEditingPlaces ? 'Done' : 'Edit'}
-                </button>
-              ) : null}
             </div>
             {ideaPlaces.length === 0 ? (
               <p className="place-empty">Add a place — it'll be here next time.</p>
@@ -3286,12 +3290,19 @@ const App = () => {
                         className="place-edit-input"
                         defaultValue={place}
                         aria-label={`Rename ${place}`}
-                        onBlur={(event) => renamePlace(index, event.target.value)}
+                        onBlur={(event) => {
+                          renamePlace(index, event.target.value);
+                          setIsEditingPlaces(false);
+                        }}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter') {
                             event.currentTarget.blur();
                           }
+                          if (event.key === 'Escape') {
+                            setIsEditingPlaces(false);
+                          }
                         }}
+                        autoFocus
                       />
                       <button
                         type="button"
@@ -3303,14 +3314,23 @@ const App = () => {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      key={`${place}-${index}`}
-                      type="button"
-                      className="place-option"
-                      onClick={() => choosePlace(place)}
-                    >
-                      {place}
-                    </button>
+                    <div key={`${place}-${index}`} className="place-option-row">
+                      <button
+                        type="button"
+                        className="place-option"
+                        onClick={() => choosePlace(place)}
+                      >
+                        {place}
+                      </button>
+                      <button
+                        type="button"
+                        className="place-edit-button"
+                        onClick={() => setIsEditingPlaces(true)}
+                        aria-label={`Edit ${place}`}
+                      >
+                        Edit
+                      </button>
+                    </div>
                   ),
                 )}
               </div>
@@ -3335,11 +3355,13 @@ const App = () => {
                 Add
               </button>
             </form>
-            <div className="confirm-actions">
-              <button type="button" className="plain-button cancel-action-button" onClick={() => (placePicker.mode === 'new' ? dismissPlacePicker() : choosePlace(null))}>
-                {placePicker.mode === 'new' ? 'Skip' : 'Remove place'}
-              </button>
-            </div>
+            {placePicker.mode === 'new' ? (
+              <div className="confirm-actions">
+                <button type="button" className="plain-button cancel-action-button" onClick={() => dismissPlacePicker()}>
+                  Skip
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -3357,6 +3379,14 @@ const App = () => {
               }
             }}
           >
+            <button
+              type="button"
+              className="dialog-close-button"
+              onClick={closeConfirm}
+              aria-label="Close dialog"
+            >
+              ✕
+            </button>
             <h2 id="confirm-title">{confirmState.title}</h2>
             <p>{confirmState.message}</p>
             <div className="confirm-actions">
