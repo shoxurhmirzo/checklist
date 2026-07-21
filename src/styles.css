@@ -1196,8 +1196,10 @@ button:focus-visible {
 .sort-board-intro h1 {
   margin: 0;
   color: #1D1D1F;
-  font-size: 1.65rem;
-  font-weight: 600;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
 }
 
 .sort-board-intro p {
@@ -2702,12 +2704,13 @@ thead th {
 
 .history-shell h1 {
   margin: 0;
-  padding: 0.45rem 0.6rem;
+  padding: 0;
   color: #1D1D1F;
   font-size: 2rem;
   font-weight: 700;
+  line-height: 1.2;
   text-align: center;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 .history-day {
@@ -3063,7 +3066,7 @@ thead th {
   margin: 0;
   color: #1D1D1F;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
-  font-size: 1.75rem;
+  font-size: 2rem;
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.02em;
