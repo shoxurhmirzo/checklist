@@ -604,7 +604,7 @@ button {
 }
 
 button:focus-visible {
-  outline: 2px solid rgba(36, 91, 103, 0.3);
+  outline: 2px solid rgba(0, 113, 227, 0.3);
   outline-offset: 2px;
 }
 
@@ -2706,7 +2706,7 @@ thead th {
 }
 
 .confirm-delete-button:hover {
-  background: #FF3B30;
+  background: #D70015;
 }
 
 
@@ -2998,17 +2998,18 @@ thead th {
   color: #0056B3;
 }
 
+/* Cancel is a neutral action, not a destructive one — Apple alert style. */
 .cancel-action-button {
-  color: #FF3B30 !important;
+  color: #0071E3 !important;
   background: transparent !important;
 }
 
 .cancel-action-button:hover,
 .history-cancel-button:hover,
 .confirm-delete-button.cancel-action-button:hover {
-  border-color: #a04a42 !important;
-  background: #fbefef !important;
-  color: #9b3f35 !important;
+  border-color: transparent !important;
+  background: rgba(0, 113, 227, 0.08) !important;
+  color: #0056B3 !important;
   box-shadow: none !important;
 }
 
