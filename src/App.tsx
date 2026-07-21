@@ -962,6 +962,26 @@ const App = () => {
     };
   }, [currentFocusTaskIds, dailyHistory, divideAndConquerItems, lastRolloverDate]);
 
+  // Warm the PDF stack (pdf.js chunk, worker, document parse) during idle
+  // time so the Capture page opens instantly instead of loading on demand.
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    const preload = () => {
+      void import('./PdfViewer').then((module) => module.preloadPdf(PLAN_PDF_URL)).catch(() => {});
+    };
+
+    if (typeof window.requestIdleCallback === 'function') {
+      const idleId = window.requestIdleCallback(preload, { timeout: 4000 });
+      return () => window.cancelIdleCallback(idleId);
+    }
+
+    const timeoutId = window.setTimeout(preload, 1500);
+    return () => window.clearTimeout(timeoutId);
+  }, [isLoaded]);
+
   useEffect(() => {
     if (!isLoaded) {
       return;

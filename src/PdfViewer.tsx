@@ -40,17 +40,14 @@ const loadPdf = (src: string): Promise<LoadedPdf> => {
   }
 
   const promise = pdfjs.getDocument({ url: src }).promise.then(async (doc) => {
-    const dimensions: PageDimensions[] = [];
-
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-      const page = await doc.getPage(pageNumber);
-      const viewport = page.getViewport({ scale: 1 });
-      dimensions.push({ width: viewport.width, height: viewport.height });
-    }
-
-    // Inside the cached parse, not the component: fires once per real
-    // download/parse per session instead of on every planner remount.
-    track('plan_pdf_opened', { page_count: doc.numPages });
+    const dimensions = await Promise.all(
+      Array.from({ length: doc.numPages }, (_, index) =>
+        doc.getPage(index + 1).then((page) => {
+          const viewport = page.getViewport({ scale: 1 });
+          return { width: viewport.width, height: viewport.height };
+        }),
+      ),
+    );
 
     return { doc, dimensions };
   });
@@ -61,6 +58,15 @@ const loadPdf = (src: string): Promise<LoadedPdf> => {
 
   return promise;
 };
+
+// Called from App during idle time: downloading and parsing ahead of the
+// first Capture visit makes the panel render instantly when it opens.
+export const preloadPdf = (src: string) => {
+  loadPdf(src).catch(() => {});
+};
+
+// The viewer, not loadPdf, reports opens — preloading must not count as one.
+let hasTrackedPdfOpen = false;
 
 // Renders the PDF with pdf.js so zoom works the same in every browser.
 // Zoom 1 means "fit the panel width"; page boxes get their size synchronously
@@ -94,6 +100,10 @@ export const PdfViewer = ({ src, title }: PdfViewerProps) => {
 
         setDoc(loadedDoc);
         setPageDimensions(dimensions);
+        if (!hasTrackedPdfOpen) {
+          hasTrackedPdfOpen = true;
+          track('plan_pdf_opened', { page_count: loadedDoc.numPages });
+        }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
