@@ -21,17 +21,11 @@ import {
   Brain,
   BrushCleaning,
   Check,
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronUp,
   Download,
   Folder,
   Minus,
   Pencil,
   Plus,
-  Sunrise,
-  Sunset,
   Trash2,
   Upload,
   X,
@@ -57,7 +51,6 @@ import {
   normalizeIdeas,
   normalizeLastRolloverDate,
   normalizeSheets,
-  normalizeSleepLogRecords,
   saveAppState,
 } from './storage';
 import type {
@@ -70,7 +63,6 @@ import type {
   DivideAndConquerTask,
   IdeaRecord,
   SectionId,
-  SleepLogRecord,
 } from './types';
 
 const DIVIDE_AND_CONQUER_ROW_SUFFIX = DEFAULT_DIVIDE_AND_CONQUER_TEXT.slice(2);
@@ -86,7 +78,7 @@ const TaskSorterMenuIcon = () => (
 );
 
 
-type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'sleepLog' | 'ideas';
+type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'ideas';
 
 // Views live in the URL hash so deep links and the back button work on GitHub
 // Pages, and every switch registers as a PostHog $pageview via pushState.
@@ -95,7 +87,6 @@ const VIEW_HASHES: Record<AppView, string> = {
   planner: '#/plan',
   sortBoard: '#/sort',
   history: '#/history',
-  sleepLog: '#/sleep',
   ideas: '#/ideas',
 };
 
@@ -302,536 +293,6 @@ const formatHistoryDate = (date: string) =>
 const formatHistoryWeekday = (date: string) =>
   new Intl.DateTimeFormat(undefined, { weekday: 'long' }).format(new Date(`${date}T00:00:00`));
 
-// Before this hour, sleep times describe the night that started yesterday (a
-// 2:00 AM bedtime logged in the morning belongs to last night); from this hour
-// on, a bedtime starts tonight's record. The cutoff sits after any plausible
-// wake-up and before any plausible bedtime.
-const SLEEP_EVENING_CUTOFF_HOUR = 18;
-
-const isSleepEveningNow = () => new Date().getHours() >= SLEEP_EVENING_CUTOFF_HOUR;
-
-// A sleep record is stored under its bedtime date; the night ends on the next
-// calendar day, so labels show the full range (e.g. "Jul 18 – 19").
-const getSleepNightEnd = (date: string) => {
-  const end = new Date(`${date}T00:00:00`);
-  end.setDate(end.getDate() + 1);
-
-  return end;
-};
-
-const formatSleepLogNightRange = (date: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).formatRange(new Date(`${date}T00:00:00`), getSleepNightEnd(date));
-
-const formatSleepLogDayLabel = (date: string) =>
-  new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-  }).formatRange(new Date(`${date}T00:00:00`), getSleepNightEnd(date));
-
-const formatSleepLogTime = (time: string) => {
-  if (!time) {
-    return '—';
-  }
-
-  const [hours, minutes] = time.split(':').map(Number);
-  const period = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 || 12;
-
-  return `${displayHours}:${String(minutes).padStart(2, '0')} ${period}`;
-};
-
-// Returns the locale's first day of week in Intl terms: 1 = Monday … 7 = Sunday.
-const getLocaleFirstWeekday = () => {
-  try {
-    const locale = new Intl.Locale(navigator.language) as Intl.Locale & {
-      getWeekInfo?: () => { firstDay: number };
-      weekInfo?: { firstDay: number };
-    };
-
-    return locale.getWeekInfo?.().firstDay ?? locale.weekInfo?.firstDay ?? 1;
-  } catch {
-    return 1;
-  }
-};
-
-const calculateSleepDurationMinutes = (bedtime: string, wakeTime: string) => {
-  if (!bedtime || !wakeTime) {
-    return null;
-  }
-
-  const [bedHours, bedMinutes] = bedtime.split(':').map(Number);
-  const [wakeHours, wakeMinutes] = wakeTime.split(':').map(Number);
-  const bedtimeMinutes = bedHours * 60 + bedMinutes;
-  const wakeMinutesFromMidnight = wakeHours * 60 + wakeMinutes;
-  const duration = wakeMinutesFromMidnight - bedtimeMinutes;
-
-  // Equal times read as "no sleep recorded", not a 24-hour night.
-  if (duration === 0) {
-    return null;
-  }
-
-  return duration > 0 ? duration : duration + 24 * 60;
-};
-
-const formatSleepDuration = (bedtime: string, wakeTime: string) => {
-  const durationMinutes = calculateSleepDurationMinutes(bedtime, wakeTime);
-
-  if (durationMinutes === null) {
-    return '—';
-  }
-
-  const hours = Math.floor(durationMinutes / 60);
-  const minutes = durationMinutes % 60;
-
-  return minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
-};
-
-const pad2 = (value: number) => String(value).padStart(2, '0');
-
-const splitTime12 = (time: string) => {
-  const [hours, minutes] = time.split(':').map(Number);
-
-  return {
-    hour12: hours % 12 || 12,
-    minutes,
-    period: hours >= 12 ? ('PM' as const) : ('AM' as const),
-  };
-};
-
-const joinTime12 = (hour12: number, minutes: number, period: 'AM' | 'PM') =>
-  `${pad2(period === 'PM' ? (hour12 % 12) + 12 : hour12 % 12)}:${pad2(minutes)}`;
-
-const STEP_REPEAT_DELAY_MS = 400;
-const STEP_REPEAT_INTERVAL_MS = 90;
-// An empty field shows a muted 00:00 placeholder; the picker must display and
-// step from that same 00:00, or the first tap would save a time the user never saw.
-const EMPTY_PICKER_TIME = '00:00';
-
-interface SleepTimePickerProps {
-  value: string;
-  ariaLabel: string;
-  triggerClassName?: string;
-  icon: ReactNode;
-  onChange: (value: string) => void;
-  // Fires once when the popup closes (or unmounts while open), with the final
-  // value — lets callers defer side effects until the user is done editing.
-  onClose?: (finalValue: string) => void;
-}
-
-const SleepTimePicker = ({ value, ariaLabel, triggerClassName, icon, onChange, onClose }: SleepTimePickerProps) => {
-  const [isOpen, setIsOpen] = useState(false);
-  // Text being typed into the hour/minute boxes; null when not editing by keyboard.
-  const [hourDraft, setHourDraft] = useState<string | null>(null);
-  const [minuteDraft, setMinuteDraft] = useState<string | null>(null);
-  // State lags within an event: auto-advancing focus fires the hour's blur before
-  // React re-renders, so blur must read the draft from a synchronously-updated ref
-  // or it re-commits the pre-typing value over what was just entered.
-  const draftsRef = useRef<{ hour: string | null; minute: string | null }>({ hour: null, minute: null });
-  const hourInputRef = useRef<HTMLInputElement | null>(null);
-  const minuteInputRef = useRef<HTMLInputElement | null>(null);
-  const containerRef = useRef<HTMLSpanElement | null>(null);
-  const valueRef = useRef(value);
-  const onCloseRef = useRef(onClose);
-  const repeatTimersRef = useRef<number[]>([]);
-  valueRef.current = value;
-  onCloseRef.current = onClose;
-
-  const stopStepRepeat = () => {
-    repeatTimersRef.current.forEach((timer) => {
-      window.clearTimeout(timer);
-      window.clearInterval(timer);
-    });
-    repeatTimersRef.current = [];
-  };
-
-  useEffect(() => {
-    if (!isOpen) {
-      // Closing the popup unmounts the step buttons, so a held button never
-      // gets its pointerup — kill any running repeat here or it spins forever.
-      stopStepRepeat();
-      draftsRef.current = { hour: null, minute: null };
-      setHourDraft(null);
-      setMinuteDraft(null);
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-      // Must read valueRef, not the value prop: a blur commit in the same event
-      // that closed the popup hasn't re-rendered into the prop yet.
-      onCloseRef.current?.(valueRef.current);
-    };
-  }, [isOpen]);
-
-  useEffect(() => stopStepRepeat, []);
-
-  // Routes every mutation through valueRef so commits landing in the same event
-  // (e.g. hour commit + minute commit) build on each other, not on a stale value.
-  const applyTime = (next: string) => {
-    valueRef.current = next;
-    onChange(next);
-  };
-
-  const stepTime = (unit: 'hour' | 'minute', delta: number) => {
-    const current = splitTime12(valueRef.current || EMPTY_PICKER_TIME);
-
-    if (unit === 'hour') {
-      applyTime(joinTime12(((current.hour12 - 1 + delta + 12) % 12) + 1, current.minutes, current.period));
-    } else {
-      applyTime(joinTime12(current.hour12, (current.minutes + delta + 60) % 60, current.period));
-    }
-  };
-
-  const setPeriod = (period: 'AM' | 'PM') => {
-    const current = splitTime12(valueRef.current || EMPTY_PICKER_TIME);
-    applyTime(joinTime12(current.hour12, current.minutes, period));
-  };
-
-  const commitDraft = (unit: 'hour' | 'minute', draft: string) => {
-    const parsed = Number(draft);
-
-    if (!draft.trim() || Number.isNaN(parsed)) {
-      return;
-    }
-
-    const current = splitTime12(valueRef.current || EMPTY_PICKER_TIME);
-
-    if (unit === 'minute') {
-      applyTime(joinTime12(current.hour12, Math.min(parsed, 59), current.period));
-    } else if (parsed === 0) {
-      applyTime(joinTime12(12, current.minutes, 'AM'));
-    } else if (parsed <= 11) {
-      // Hours 1-11 are morning (AM).
-      applyTime(joinTime12(parsed, current.minutes, 'AM'));
-    } else if (parsed === 12) {
-      // Hour 12 is noon (PM).
-      applyTime(joinTime12(12, current.minutes, 'PM'));
-    } else if (parsed <= 23) {
-      // Hours 13-23 are evening (PM); convert to 12-hour.
-      applyTime(joinTime12(parsed - 12, current.minutes, 'PM'));
-    }
-  };
-
-  const renderValueInput = (unit: 'hour' | 'minute', displayValue: string, autoFocus: boolean) => {
-    const draft = unit === 'hour' ? hourDraft : minuteDraft;
-    const setDraft = (next: string | null) => {
-      draftsRef.current[unit] = next;
-      (unit === 'hour' ? setHourDraft : setMinuteDraft)(next);
-    };
-    const finishDraft = () => {
-      const currentDraft = draftsRef.current[unit];
-
-      if (currentDraft !== null) {
-        commitDraft(unit, currentDraft);
-        setDraft(null);
-      }
-    };
-
-    return (
-      <input
-        ref={unit === 'hour' ? hourInputRef : unit === 'minute' ? minuteInputRef : undefined}
-        className="sleep-time-picker-value"
-        type="text"
-        inputMode="numeric"
-        autoFocus={autoFocus}
-        value={draft ?? displayValue}
-        aria-label={unit === 'hour' ? 'Hour' : 'Minutes'}
-        onFocus={(event) => {
-          // Extract the raw hour/minute from the stored 24-hour time, not the converted displayValue.
-          // This way typing "23" shows "23", not the 12-hour "11".
-          const timeValue = valueRef.current || EMPTY_PICKER_TIME;
-          const [storedHour, storedMinute] = timeValue.split(':');
-          const rawValue = unit === 'hour' ? storedHour : storedMinute;
-          setDraft(rawValue);
-          event.currentTarget.select();
-        }}
-        onChange={(event) => {
-          const next = event.target.value.replace(/\D/g, '').slice(0, 2);
-          setDraft(next);
-
-          // Auto-advance only once two digits are entered. Valid hours can start with
-          // any digit 1-2 (for 10-12 or 20-23), so single digits 1-2 need a second digit.
-          if (unit === 'hour' && next.length === 2) {
-            commitDraft('hour', next);
-            setDraft(null);
-            minuteInputRef.current?.focus();
-          } else if (unit === 'minute') {
-            if (next.length === 2) {
-              commitDraft('minute', next);
-            } else if (next.length === 0) {
-              // Backspace to empty in minutes — jump back to hour.
-              setDraft(null);
-              hourInputRef.current?.focus();
-            }
-          }
-        }}
-        onBlur={finishDraft}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') {
-            finishDraft();
-            setIsOpen(false);
-          } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-            event.preventDefault();
-            setDraft(null);
-            stepTime(unit, event.key === 'ArrowUp' ? 1 : -1);
-          }
-        }}
-      />
-    );
-  };
-
-  const beginStepRepeat = (unit: 'hour' | 'minute', delta: number) => {
-    stopStepRepeat();
-    stepTime(unit, delta);
-    repeatTimersRef.current.push(
-      window.setTimeout(() => {
-        repeatTimersRef.current.push(window.setInterval(() => stepTime(unit, delta), STEP_REPEAT_INTERVAL_MS));
-      }, STEP_REPEAT_DELAY_MS),
-    );
-  };
-
-  const renderStepButton = (unit: 'hour' | 'minute', delta: number, label: string) => (
-    <button
-      type="button"
-      className="sleep-time-step"
-      aria-label={label}
-      onPointerDown={() => beginStepRepeat(unit, delta)}
-      onPointerUp={stopStepRepeat}
-      onPointerLeave={stopStepRepeat}
-      onPointerCancel={stopStepRepeat}
-      onClick={(event) => {
-        // Pointer clicks already stepped via pointerdown; keyboard activation has no pointerdown.
-        if (event.detail === 0) {
-          stepTime(unit, delta);
-        }
-      }}
-    >
-      {delta > 0 ? (
-        <ChevronUp size={18} strokeWidth={2} aria-hidden="true" />
-      ) : (
-        <ChevronDown size={18} strokeWidth={2} aria-hidden="true" />
-      )}
-    </button>
-  );
-
-  const shown = splitTime12(value || EMPTY_PICKER_TIME);
-  // Extract raw 24-hour values for display when not typing (draft is null).
-  // This way the picker shows "23" not "11" after committing 24-hour input.
-  const [rawHour, rawMinute] = (value || EMPTY_PICKER_TIME).split(':');
-
-  return (
-    <span className="sleep-time-input-wrap" ref={containerRef}>
-      <button
-        type="button"
-        className={`sleep-time-trigger ${triggerClassName ?? ''}`}
-        onClick={() => setIsOpen((open) => !open)}
-        aria-haspopup="dialog"
-        aria-expanded={isOpen}
-        aria-label={ariaLabel}
-      >
-        {value ? (
-          <span className="sleep-time-trigger-value">{formatSleepLogTime(value)}</span>
-        ) : (
-          <span className="sleep-time-trigger-placeholder">00:00</span>
-        )}
-        <span className="sleep-time-trigger-icon" aria-hidden="true">{icon}</span>
-      </button>
-      {isOpen ? (
-        <div className="sleep-time-picker-pop" role="dialog" aria-label={ariaLabel}>
-          <div className="sleep-time-picker-grid">
-            <div className="sleep-time-picker-col">
-              {renderStepButton('hour', 1, 'Increase hour')}
-              {renderValueInput('hour', rawHour, true)}
-              {renderStepButton('hour', -1, 'Decrease hour')}
-            </div>
-            <span className="sleep-time-picker-colon" aria-hidden="true">:</span>
-            <div className="sleep-time-picker-col">
-              {renderStepButton('minute', 1, 'Increase minute')}
-              {renderValueInput('minute', rawMinute, false)}
-              {renderStepButton('minute', -1, 'Decrease minute')}
-            </div>
-          </div>
-          <div className="sleep-time-picker-ampm" role="group" aria-label="AM or PM">
-            <button
-              type="button"
-              className={shown.period === 'AM' ? 'is-active' : ''}
-              aria-pressed={shown.period === 'AM'}
-              onClick={() => setPeriod('AM')}
-            >
-              AM
-            </button>
-            <button
-              type="button"
-              className={shown.period === 'PM' ? 'is-active' : ''}
-              aria-pressed={shown.period === 'PM'}
-              onClick={() => setPeriod('PM')}
-            >
-              PM
-            </button>
-          </div>
-          {value ? (
-            <button
-              type="button"
-              className="sleep-time-clear"
-              onClick={() => {
-                applyTime('');
-                setIsOpen(false);
-              }}
-            >
-              Clear
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </span>
-  );
-};
-
-interface SleepDateChangerProps {
-  label: string;
-  value: string;
-  maxDate: string;
-  onSelect: (date: string) => void;
-}
-
-const SleepDateChanger = ({ label, value, maxDate, onSelect }: SleepDateChangerProps) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [viewYear, setViewYear] = useState(() => Number(value.slice(0, 4)));
-  const [viewMonth, setViewMonth] = useState(() => Number(value.slice(5, 7)) - 1);
-  const containerRef = useRef<HTMLSpanElement | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsOpen(false);
-      }
-    };
-
-    document.addEventListener('pointerdown', handlePointerDown);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('pointerdown', handlePointerDown);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen]);
-
-  const toggleOpen = () => {
-    if (!isOpen) {
-      setViewYear(Number(value.slice(0, 4)));
-      setViewMonth(Number(value.slice(5, 7)) - 1);
-    }
-    setIsOpen((open) => !open);
-  };
-
-  const stepMonth = (delta: number) => {
-    const view = new Date(viewYear, viewMonth + delta, 1);
-    setViewYear(view.getFullYear());
-    setViewMonth(view.getMonth());
-  };
-
-  // 0 = Sunday … 6 = Saturday, from the locale's 1–7 (Monday-first) convention.
-  const weekStart = getLocaleFirstWeekday() % 7;
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
-  const leadingBlanks = (new Date(viewYear, viewMonth, 1).getDay() - weekStart + 7) % 7;
-  const nextMonthFirstDay = `${new Date(viewYear, viewMonth + 1, 1).getFullYear()}-${pad2(new Date(viewYear, viewMonth + 1, 1).getMonth() + 1)}-01`;
-  const weekdayFormatter = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
-  // Jan 4, 2026 is a Sunday; offsets from it yield each weekday label.
-  const weekdayLabels = Array.from({ length: 7 }, (_, index) =>
-    weekdayFormatter.format(new Date(2026, 0, 4 + ((weekStart + index) % 7))),
-  );
-  const monthTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(
-    new Date(viewYear, viewMonth, 1),
-  );
-
-  return (
-    <span className="sleep-date-anchor" ref={containerRef}>
-      <button type="button" className="sleep-text-button" onClick={toggleOpen} aria-haspopup="dialog" aria-expanded={isOpen}>
-        {label}
-      </button>
-      {isOpen ? (
-        <div className="sleep-date-pop" role="dialog" aria-label="Choose date">
-          <div className="sleep-date-pop-header">
-            <span className="sleep-date-pop-title">{monthTitle}</span>
-            <div className="sleep-date-pop-nav">
-              <button type="button" className="sleep-time-step" aria-label="Previous month" onClick={() => stepMonth(-1)}>
-                <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                className="sleep-time-step"
-                aria-label="Next month"
-                disabled={nextMonthFirstDay > maxDate}
-                onClick={() => stepMonth(1)}
-              >
-                <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-          <div className="sleep-date-grid">
-            {weekdayLabels.map((label, index) => (
-              <span key={`weekday-${index}`} className="sleep-date-weekday" aria-hidden="true">
-                {label}
-              </span>
-            ))}
-            {Array.from({ length: leadingBlanks }, (_, index) => (
-              <span key={`blank-${index}`} aria-hidden="true" />
-            ))}
-            {Array.from({ length: daysInMonth }, (_, index) => {
-              const day = index + 1;
-              const dateString = `${viewYear}-${pad2(viewMonth + 1)}-${pad2(day)}`;
-
-              return (
-                <button
-                  key={dateString}
-                  type="button"
-                  className={`sleep-date-day ${dateString === value ? 'is-selected' : ''} ${dateString === maxDate ? 'is-today' : ''}`}
-                  disabled={dateString > maxDate}
-                  aria-pressed={dateString === value}
-                  onClick={() => {
-                    onSelect(dateString);
-                    setIsOpen(false);
-                  }}
-                >
-                  {day}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </span>
-  );
-};
-
 interface DailyRolloverSlice {
   divideAndConquerItems: DivideAndConquerTask[];
   currentFocusTaskIds: string[];
@@ -915,16 +376,6 @@ const App = () => {
   );
   const [currentFocusTaskIds, setCurrentFocusTaskIds] = useState<string[]>([]);
   const [dailyHistory, setDailyHistory] = useState<DailyHistoryRecord[]>([]);
-  const [sleepLogRecords, setSleepLogRecords] = useState<SleepLogRecord[]>([]);
-  const [expandedSleepDate, setExpandedSleepDate] = useState<string | null>(null);
-  // Whether the clock has passed the evening cutoff — flips the sleep card from
-  // last night to tonight. Kept in state so the card updates while the app sits
-  // open across the cutoff, not only on the next interaction.
-  const [sleepIsEvening, setSleepIsEvening] = useState(isSleepEveningNow);
-  // Tonight's bedtime stays here while the picker is open; committing it to
-  // sleepLogRecords mid-edit would promote tonight into the card and unmount
-  // the picker under the user's finger.
-  const [tonightBedtimeDraft, setTonightBedtimeDraft] = useState('');
   const [ideas, setIdeas] = useState<IdeaRecord[]>([]);
   const [ideaDraft, setIdeaDraft] = useState('');
   const [editingIdeaId, setEditingIdeaId] = useState<string | null>(null);
@@ -1289,7 +740,6 @@ const App = () => {
         setDivideAndConquerItems(rolled.slice.divideAndConquerItems);
         setCurrentFocusTaskIds(rolled.slice.currentFocusTaskIds);
         setDailyHistory(rolled.slice.dailyHistory);
-        setSleepLogRecords(storedState.sleepLogRecords);
         setIdeas(storedState.ideas);
         setIdeaPlaces(storedState.ideaPlaces);
         setLastRolloverDate(rolled.slice.lastRolloverDate);
@@ -1344,7 +794,6 @@ const App = () => {
       divideAndConquerItems,
       currentFocusTaskIds,
       dailyHistory,
-      sleepLogRecords,
       ideas,
       ideaPlaces,
       lastRolloverDate,
@@ -1384,7 +833,6 @@ const App = () => {
     lastRolloverDate,
     persistenceBlocked,
     sheets,
-    sleepLogRecords,
   ]);
 
   useEffect(
@@ -1477,22 +925,6 @@ const App = () => {
       window.removeEventListener('focus', checkForRollover);
     };
   }, [isLoaded]);
-
-  useEffect(() => {
-    const refreshSleepEvening = () => setSleepIsEvening(isSleepEveningNow());
-
-    // Same short-interval-plus-listeners pattern as the rollover check: a single
-    // timeout to the cutoff drifts or never fires after the machine sleeps.
-    const intervalId = window.setInterval(refreshSleepEvening, 60_000);
-    document.addEventListener('visibilitychange', refreshSleepEvening);
-    window.addEventListener('focus', refreshSleepEvening);
-
-    return () => {
-      window.clearInterval(intervalId);
-      document.removeEventListener('visibilitychange', refreshSleepEvening);
-      window.removeEventListener('focus', refreshSleepEvening);
-    };
-  }, []);
 
   useEffect(() => {
     const workspace = workspaceRef.current;
@@ -1598,35 +1030,6 @@ const App = () => {
   } as const;
   const completedTasks = divideAndConquerBuckets.completed;
   const todayCompletedTasks = divideAndConquerItems.filter((item) => item.bucket === 'completed');
-  const sleepToday = getLocalDateString();
-  const sleepYesterday = (() => {
-    const date = new Date(`${sleepToday}T00:00:00`);
-    date.setDate(date.getDate() - 1);
-    return getLocalDateString(date);
-  })();
-  const sleepTodayRecord = sleepLogRecords.find((record) => record.date === sleepToday);
-  const sleepYesterdayRecord = sleepLogRecords.find((record) => record.date === sleepYesterday);
-  // A record is keyed by the day its night starts; an after-midnight bedtime
-  // still belongs to the previous day's night. Which night the card edits
-  // follows the clock: until the evening cutoff it is last night — a bedtime or
-  // wake-up logged in the morning describes the night that just ended. From the
-  // cutoff on it is tonight, keyed today — otherwise an evening bedtime would
-  // overwrite last night's record instead of starting a new night, even though
-  // both nights have times on today's calendar date. Last night stays intact in
-  // History once the card flips.
-  const sleepActiveRecord = sleepIsEvening
-    ? sleepTodayRecord ?? { date: sleepToday, bedtime: '', wakeTime: '' }
-    : sleepTodayRecord ?? sleepYesterdayRecord ?? { date: sleepYesterday, bedtime: '', wakeTime: '' };
-  const sleepActiveDate = sleepActiveRecord.date;
-  const sleepCardIsLastNight = sleepActiveDate !== sleepToday;
-  // While the card still shows last night, tonight has no record yet — an
-  // explicit "Tonight" bedtime field starts it without touching last night.
-  const sleepShowTonightStarter = sleepCardIsLastNight;
-  // The active night lives in the card above; History is strictly older nights.
-  const visibleSleepRecords = sleepLogRecords
-    .filter((record) => record.date !== sleepToday && record.date !== sleepActiveDate)
-    .sort((first, second) => second.date.localeCompare(first.date));
-  const sleepDurationText = formatSleepDuration(sleepActiveRecord.bedtime, sleepActiveRecord.wakeTime);
 
   const markHistoryTaskComplete = (date: string, taskId: string) => {
     setDailyHistory((records) =>
@@ -2092,7 +1495,6 @@ const App = () => {
       divideAndConquerItems,
       currentFocusTaskIds,
       dailyHistory,
-      sleepLogRecords,
       ideas,
       ideaPlaces,
       lastRolloverDate,
@@ -2150,7 +1552,6 @@ const App = () => {
         ),
       );
       setDailyHistory(normalizeDailyHistory(parsed.dailyHistory));
-      setSleepLogRecords(normalizeSleepLogRecords(parsed.sleepLogRecords));
       setIdeas(normalizeIdeas(parsed.ideas));
       setIdeaPlaces(normalizeIdeaPlaces(parsed.ideaPlaces));
       // Old backups carry no rollover date; stamping today keeps the imported
@@ -2190,100 +1591,6 @@ const App = () => {
       selectedMonth: parsedMonth.month,
       columnLabels: generateColumnLabelsForMonth(parsedMonth.year, parsedMonth.month),
     }));
-  };
-
-  const updateSleepLogRecord = (
-    date: string,
-    updates: Partial<Pick<SleepLogRecord, 'bedtime' | 'wakeTime'>>,
-    source: 'card' | 'tonight' | 'history',
-  ) => {
-    const priorRecord = sleepLogRecords.find((record) => record.date === date) ?? {
-      date,
-      bedtime: '',
-      wakeTime: '',
-    };
-
-    setSleepLogRecords((currentRecords) => {
-      const currentRecord = currentRecords.find((record) => record.date === date) ?? {
-        date,
-        bedtime: '',
-        wakeTime: '',
-      };
-      const nextRecord = { ...currentRecord, ...updates };
-      const recordsWithoutDate = currentRecords.filter((record) => record.date !== date);
-
-      // A record with neither time left is deleted, not kept as a blank row.
-      if (!nextRecord.bedtime && !nextRecord.wakeTime) {
-        return recordsWithoutDate;
-      }
-
-      return [nextRecord, ...recordsWithoutDate].sort((a, b) => b.date.localeCompare(a.date));
-    });
-    const field = 'bedtime' in updates ? 'bedtime' : 'wake_time';
-    track('sleep_time_logged', { field, source });
-
-    const nextRecord = { ...priorRecord, ...updates };
-    const wasComplete = Boolean(priorRecord.bedtime && priorRecord.wakeTime);
-    const durationMinutes = calculateSleepDurationMinutes(nextRecord.bedtime, nextRecord.wakeTime);
-
-    if (!wasComplete && durationMinutes !== null) {
-      track('sleep_night_completed', {
-        duration_minutes: durationMinutes,
-        bedtime_hour: Number(nextRecord.bedtime.split(':')[0]),
-      });
-    }
-  };
-
-  // A day opened via Add starts as a blank record; if it is still blank when its
-  // row closes, drop it so abandoned adds leave no empty rows behind.
-  const pruneEmptySleepRecord = (date: string) => {
-    setSleepLogRecords((currentRecords) =>
-      currentRecords.filter((record) => !(record.date === date && !record.bedtime && !record.wakeTime)),
-    );
-  };
-
-  const setExpandedSleepRow = (date: string | null) => {
-    if (expandedSleepDate && expandedSleepDate !== date) {
-      pruneEmptySleepRecord(expandedSleepDate);
-    }
-    setExpandedSleepDate(date);
-  };
-
-  const toggleSleepHistoryRow = (date: string) => {
-    const next = expandedSleepDate === date ? null : date;
-    setExpandedSleepRow(next);
-
-    if (next) {
-      window.requestAnimationFrame(() => {
-        document.querySelector<HTMLButtonElement>('.sleep-row-bedtime')?.focus();
-      });
-    }
-  };
-
-  const addSleepHistoryDay = (date: string) => {
-    setSleepLogRecords((currentRecords) =>
-      currentRecords.some((record) => record.date === date)
-        ? currentRecords
-        : [{ date, bedtime: '', wakeTime: '' }, ...currentRecords].sort((a, b) => b.date.localeCompare(a.date)),
-    );
-    setExpandedSleepRow(date);
-    window.requestAnimationFrame(() => {
-      document.querySelector<HTMLButtonElement>('.sleep-row-bedtime')?.focus();
-    });
-  };
-
-  const deleteSleepLogRecord = (date: string) => {
-    setConfirmState({
-      title: 'Delete sleep record',
-      message: `Delete the sleep record for ${formatSleepLogNightRange(date)}?`,
-      confirmLabel: 'Delete',
-      onConfirm: () => {
-        setSleepLogRecords((currentRecords) => currentRecords.filter((record) => record.date !== date));
-        setExpandedSleepDate((current) => (current === date ? null : current));
-        setStatus('Sleep record deleted');
-        track('sleep_record_deleted');
-      },
-    });
   };
 
   const commitIdea = (text: string, place: string | null) => {
@@ -3000,13 +2307,7 @@ const App = () => {
       <main ref={workspaceRef} className="workspace">
         <section className="top-controls">
           <div
-            className={`controls-row ${
-              activeView === 'checklist'
-                ? 'checklist-controls-row'
-                : activeView === 'sleepLog'
-                  ? 'sleep-log-controls-row'
-                  : ''
-            }`}
+            className={`controls-row ${activeView === 'checklist' ? 'checklist-controls-row' : ''}`}
           >
             {activeView === 'checklist' ? (
               <>
@@ -3048,18 +2349,6 @@ const App = () => {
                     </button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className="nav-link-button sleep-log-nav-button"
-                  onClick={() => {
-                    setIsPlanMenuOpen(false);
-                    setIsSheetMenuOpen(false);
-                    setExpandedSleepDate(null);
-                    navigateToView('sleepLog');
-                  }}
-                >
-                  Sleep log
-                </button>
                 <button
                   type="button"
                   className="nav-link-button ideas-nav-button"
@@ -3262,7 +2551,7 @@ const App = () => {
                   </svg>
                 </button>
               </>
-            ) : activeView === 'sleepLog' || activeView === 'ideas' ? (
+            ) : activeView === 'ideas' ? (
               <>
                 <button
                   type="button"
@@ -3673,10 +2962,10 @@ const App = () => {
             </div>
           </section>
         ) : activeView === 'ideas' ? (
-          <section className="sleep-log-page ideas-page" aria-labelledby="ideas-title">
-            <div className="sleep-log-shell">
-              <header className="sleep-log-heading">
-                <div className="sleep-log-heading-row">
+          <section className="ideas-page" aria-labelledby="ideas-title">
+            <div className="ideas-shell">
+              <header className="ideas-heading">
+                <div className="ideas-heading-row">
                   <h1 id="ideas-title">Ideas</h1>
                 </div>
               </header>
@@ -3782,168 +3071,6 @@ const App = () => {
                   ))
                 )}
               </div>
-            </div>
-          </section>
-        ) : activeView === 'sleepLog' ? (
-          <section className="sleep-log-page" aria-labelledby="sleep-log-title">
-            <div className="sleep-log-shell">
-              <header className="sleep-log-heading">
-                <div className="sleep-log-heading-row">
-                  <div>
-                    <h1 id="sleep-log-title">Sleep <span>· {formatSleepLogNightRange(sleepActiveDate)}</span></h1>
-                  </div>
-                  <div className="sleep-log-actions">
-                    {sleepLogRecords.some((record) => record.date === sleepActiveDate) ? (
-                      <button
-                        type="button"
-                        className="sleep-text-button sleep-remove-button"
-                        onClick={() => deleteSleepLogRecord(sleepActiveDate)}
-                      >
-                        Remove
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </header>
-              <section className="sleep-entry-card" aria-label="Sleep entry">
-                <div className="sleep-editor-fields">
-                  <div className="sleep-time-field">
-                    <span>Bed</span>
-                    <SleepTimePicker
-                      value={sleepActiveRecord.bedtime}
-                      ariaLabel={sleepCardIsLastNight ? 'Bedtime for last night' : 'Bedtime for today'}
-                      triggerClassName="sleep-editor-bedtime"
-                      icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { bedtime: time }, 'card')}
-                    />
-                  </div>
-                  {sleepDurationText !== '—' ? (
-                    <output className="sleep-duration-summary" aria-label={`Sleep duration ${sleepDurationText}`}>
-                      <strong>{sleepDurationText}</strong>
-                    </output>
-                  ) : (
-                    <span className="sleep-duration-summary" aria-hidden="true" />
-                  )}
-                  <div className="sleep-time-field">
-                    <span>Wake</span>
-                    <SleepTimePicker
-                      value={sleepActiveRecord.wakeTime}
-                      ariaLabel={sleepCardIsLastNight ? 'Wake-up time for last night' : 'Wake-up time for today'}
-                      icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
-                      onChange={(time) => updateSleepLogRecord(sleepActiveDate, { wakeTime: time }, 'card')}
-                    />
-                  </div>
-                </div>
-                {sleepShowTonightStarter ? (
-                  <div className="sleep-tonight-row">
-                    <span className="sleep-tonight-label">
-                      Tonight <span>· {formatSleepLogNightRange(sleepToday)}</span>
-                    </span>
-                    <div className="sleep-time-field">
-                      <span>Bed</span>
-                      <SleepTimePicker
-                        value={tonightBedtimeDraft}
-                        ariaLabel="Bedtime for tonight"
-                        icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                        onChange={setTonightBedtimeDraft}
-                        onClose={(time) => {
-                          if (time) {
-                            updateSleepLogRecord(sleepToday, { bedtime: time }, 'tonight');
-                            setTonightBedtimeDraft('');
-                          }
-                        }}
-                      />
-                    </div>
-                  </div>
-                ) : null}
-              </section>
-              <section className="sleep-history" aria-label="Sleep history">
-                <div className="sleep-history-heading">
-                  <h2>History</h2>
-                  <SleepDateChanger
-                    label="Add"
-                    value={sleepYesterday}
-                    maxDate={sleepYesterday}
-                    onSelect={addSleepHistoryDay}
-                  />
-                </div>
-                <div className="sleep-history-rows">
-                  {visibleSleepRecords.map((record) => {
-                    const isExpanded = record.date === expandedSleepDate;
-                    const duration = formatSleepDuration(record.bedtime, record.wakeTime);
-
-                    return (
-                      <div key={record.date} className={`sleep-history-item${isExpanded ? ' is-expanded' : ''}`}>
-                        <button
-                          type="button"
-                          className="sleep-history-row"
-                          onClick={() => toggleSleepHistoryRow(record.date)}
-                          aria-expanded={isExpanded}
-                          aria-label={`Edit sleep record for ${formatSleepLogNightRange(record.date)}`}
-                        >
-                          <time className="sleep-history-date" dateTime={record.date}>
-                            {formatSleepLogDayLabel(record.date)}
-                          </time>
-                          <span className="sleep-history-range">
-                            {record.bedtime ? (
-                              formatSleepLogTime(record.bedtime)
-                            ) : (
-                              <span className="is-missing">–:––</span>
-                            )}
-                            {' – '}
-                            {record.wakeTime ? (
-                              formatSleepLogTime(record.wakeTime)
-                            ) : (
-                              <span className="is-missing">–:––</span>
-                            )}
-                          </span>
-                          <span className="sleep-history-duration">{duration === '—' ? '' : duration}</span>
-                          <ChevronRight className="sleep-history-chevron" size={16} strokeWidth={2} aria-hidden="true" />
-                        </button>
-                        {isExpanded ? (
-                          <div className="sleep-history-editor">
-                            <div className="sleep-editor-fields">
-                              <div className="sleep-time-field">
-                                <span>Bed</span>
-                                <SleepTimePicker
-                                  value={record.bedtime}
-                                  ariaLabel={`Bedtime for the night of ${formatSleepLogNightRange(record.date)}`}
-                                  triggerClassName="sleep-row-bedtime"
-                                  icon={<Sunset size={20} strokeWidth={1.8} aria-hidden="true" />}
-                                  onChange={(time) => updateSleepLogRecord(record.date, { bedtime: time }, 'history')}
-                                />
-                              </div>
-                              {duration !== '—' ? (
-                                <output className="sleep-duration-summary" aria-label={`Sleep duration ${duration}`}>
-                                  <strong>{duration}</strong>
-                                </output>
-                              ) : (
-                                <span className="sleep-duration-summary" aria-hidden="true" />
-                              )}
-                              <div className="sleep-time-field">
-                                <span>Wake</span>
-                                <SleepTimePicker
-                                  value={record.wakeTime}
-                                  ariaLabel={`Wake-up time for the night of ${formatSleepLogNightRange(record.date)}`}
-                                  icon={<Sunrise size={20} strokeWidth={1.8} aria-hidden="true" />}
-                                  onChange={(time) => updateSleepLogRecord(record.date, { wakeTime: time }, 'history')}
-                                />
-                              </div>
-                            </div>
-                            <button
-                              type="button"
-                              className="sleep-text-button sleep-remove-button"
-                              onClick={() => deleteSleepLogRecord(record.date)}
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </section>
             </div>
           </section>
         ) : activeView === 'history' ? (
@@ -4183,7 +3310,7 @@ const App = () => {
             <div className="place-dialog-header">
               <h2 id="place-picker-title">Where is it?</h2>
               {ideaPlaces.length > 0 ? (
-                <button type="button" className="sleep-text-button" onClick={() => setIsEditingPlaces((value) => !value)}>
+                <button type="button" className="text-button" onClick={() => setIsEditingPlaces((value) => !value)}>
                   {isEditingPlaces ? 'Done' : 'Edit'}
                 </button>
               ) : null}

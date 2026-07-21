@@ -54,12 +54,6 @@ export interface DailyHistoryRecord {
   undone: DailyHistoryEntry[];
 }
 
-export interface SleepLogRecord {
-  date: string;
-  bedtime: string;
-  wakeTime: string;
-}
-
 export interface IdeaRecord {
   id: string;
   number: number;
@@ -75,7 +69,6 @@ export interface AppState {
   divideAndConquerItems: DivideAndConquerTask[];
   currentFocusTaskIds: string[];
   dailyHistory: DailyHistoryRecord[];
-  sleepLogRecords: SleepLogRecord[];
   ideas: IdeaRecord[];
   ideaPlaces: string[];
   lastRolloverDate: string | null;
@@ -91,7 +84,6 @@ export interface BackupPayload {
   currentFocusTaskId?: string | null;
   currentFocusTaskIds?: string[];
   dailyHistory?: DailyHistoryRecord[];
-  sleepLogRecords?: SleepLogRecord[];
   ideas?: IdeaRecord[];
   ideaPlaces?: string[];
   lastRolloverDate?: string | null;
