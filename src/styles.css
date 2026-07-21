@@ -2715,7 +2715,7 @@ thead th {
 
 .history-day {
   border: 1px solid #E8E8ED;
-  border-radius: 12px;
+  border-radius: 16px;
   background: #FFFFFF;
   padding: 1.2rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
@@ -2921,7 +2921,7 @@ thead th {
 
 .history-empty {
   border: 1px solid #E8E8ED;
-  border-radius: 10px;
+  border-radius: 12px;
   padding: 1.2rem;
   text-align: center;
   color: #A1A1A6;
