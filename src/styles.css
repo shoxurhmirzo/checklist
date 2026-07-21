@@ -2225,14 +2225,22 @@ thead th {
 
 .check-toggle.checked {
   font-weight: 400;
-  background: #f3faf4;
-  color: #2f7a3d;
+  background: #2f7a3d;
+  color: #fff;
+}
+
+.check-toggle.checked:hover {
+  background: #286834;
 }
 
 .check-toggle.undone {
   font-weight: 400;
-  background: #fff7f5;
-  color: #9b3f35;
+  background: #9b3f35;
+  color: #fff;
+}
+
+.check-toggle.undone:hover {
+  background: #85362e;
 }
 
 .cell-mark-icon {
