@@ -1188,9 +1188,16 @@ button:focus-visible {
   padding: 0 0.5rem 1rem;
 }
 
+/* Same card treatment as .dq-editor-shell / .ideas-shell: the page title
+   lives inside a bordered card on every Work view. */
 .sort-board-intro {
   text-align: center;
-  margin-bottom: 1rem;
+  width: min(760px, 100%);
+  margin: 0 auto 1rem;
+  border: 1px solid #E8E8ED;
+  border-radius: 16px;
+  background: #FFFFFF;
+  padding: 1.5rem 1.5rem 1.75rem;
 }
 
 .sort-board-intro h1 {
@@ -2699,7 +2706,11 @@ thead th {
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  padding-bottom: 2rem;
+  border: 1px solid #E8E8ED;
+  border-radius: 16px;
+  background: #FFFFFF;
+  padding: 1.5rem 1.5rem 2rem;
+  margin-bottom: 2rem;
 }
 
 .history-shell h1 {
@@ -2713,13 +2724,14 @@ thead th {
   letter-spacing: -0.02em;
 }
 
+/* Inner cards inside the shell card, matching the 12px inner tier. */
 .history-day {
   border: 1px solid #E8E8ED;
-  border-radius: 16px;
+  border-radius: 12px;
   background: #FFFFFF;
   padding: 1.2rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  margin-bottom: 1rem;
+  margin-bottom: 0;
 }
 
 .history-day.is-today {
