@@ -1358,6 +1358,11 @@ const App = () => {
         onDragOver={(event) => handleDivideAndConquerTaskCardDragOver(event, task)}
         onDragLeave={(event) => handleDivideAndConquerTaskCardDragLeave(event, task.id)}
         onDrop={(event) => handleDivideAndConquerTaskCardDrop(event, task)}
+        onDoubleClick={() => {
+          if (!isEditing) {
+            setEditingDivideAndConquerTaskId(task.id);
+          }
+        }}
       >
         <span className="sort-task-card-grip" aria-hidden="true">
           <span />
@@ -1394,7 +1399,7 @@ const App = () => {
             <span className="sort-task-card-actions">
               <button
                 type="button"
-                className="sort-task-card-action"
+                className="sort-task-card-action text-action"
                 aria-label="Edit task"
                 draggable={false}
                 onClick={(event) => {
@@ -1402,13 +1407,12 @@ const App = () => {
                   setEditingDivideAndConquerTaskId(task.id);
                 }}
                 onDragStart={(event) => event.preventDefault()}
-                title="Edit task"
               >
-                <Pencil className="sort-task-card-action-icon" size={15} strokeWidth={2} aria-hidden="true" />
+                Edit
               </button>
               <button
                 type="button"
-                className="sort-task-card-action danger"
+                className="sort-task-card-action text-action danger"
                 aria-label="Delete task"
                 draggable={false}
                 onClick={(event) => {
@@ -1416,9 +1420,8 @@ const App = () => {
                   deleteDivideAndConquerTask(task.id);
                 }}
                 onDragStart={(event) => event.preventDefault()}
-                title="Delete task"
               >
-                <Trash2 className="sort-task-card-action-icon" size={15} strokeWidth={2} aria-hidden="true" />
+                Delete
               </button>
             </span>
           </>
@@ -2766,17 +2769,20 @@ const App = () => {
               </div>
 
               <div className="sort-board-layout">
-                <div
-                  className="sort-unassigned-list"
-                  onDragOver={handleDivideAndConquerDragOver}
-                  onDrop={(event) => handleDivideAndConquerDrop(event, 'unassigned')}
-                  aria-label="Unassigned tasks"
-                >
-                  {divideAndConquerBuckets.unassigned.length > 0 ? (
-                    divideAndConquerBuckets.unassigned.map((task, index) =>
-                      renderDivideAndConquerTaskCard(task, index)
-                    )
-                  ) : null}
+                <div className="sort-tasks-shell">
+                  <h2 className="sort-tasks-title">Tasks</h2>
+                  <div
+                    className="sort-unassigned-list"
+                    onDragOver={handleDivideAndConquerDragOver}
+                    onDrop={(event) => handleDivideAndConquerDrop(event, 'unassigned')}
+                    aria-label="Unassigned tasks"
+                  >
+                    {divideAndConquerBuckets.unassigned.length > 0 ? (
+                      divideAndConquerBuckets.unassigned.map((task, index) =>
+                        renderDivideAndConquerTaskCard(task, index)
+                      )
+                    ) : null}
+                  </div>
                 </div>
 
                 <div className="sort-matrix-and-completion">

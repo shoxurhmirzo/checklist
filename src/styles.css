@@ -1374,13 +1374,33 @@ button:focus-visible {
   min-height: 0;
 }
 
+/* Same card treatment as the Capture page's .dq-editor-shell. */
+.sort-tasks-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid #E8E8ED;
+  border-radius: 16px;
+  background: #FFFFFF;
+  padding: 1.5rem 1.25rem;
+}
+
+.sort-tasks-title {
+  margin: 0 0 1rem 0;
+  padding: 0;
+  color: #1D1D1F;
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  letter-spacing: -0.02em;
+}
+
 .sort-unassigned-list {
   display: flex;
   flex-direction: column;
   gap: 0.65rem;
-  /* Top padding matches the matrix header row (1.6rem) + its row gap
-     (0.5rem) so the first card top-aligns with the quadrant box. */
-  padding: 2.1rem 0 0.5rem;
+  padding: 0.25rem 0 0.5rem;
   min-height: 0;
   overflow: auto;
 }
@@ -1420,7 +1440,12 @@ button:focus-visible {
 }
 
 .sort-unassigned-list .sort-task-card-actions {
-  display: none;
+  right: 1rem;
+  border-radius: 0 12px 12px 0;
+}
+
+.sort-unassigned-list .sort-task-card-action {
+  font-size: 0.95rem;
 }
 
 .sort-matrix-and-completion {
@@ -1908,45 +1933,64 @@ button:focus-visible {
   line-height: 1.25;
 }
 
+/* Edit/delete are part of the row, not a floating pill: plain text that
+   fades in on hover, with a soft fade over any text running beneath. */
 .sort-task-card-actions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0.65rem;
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  justify-self: end;
+  gap: 0.9rem;
   white-space: nowrap;
+  padding-left: 1.75rem;
+  background: linear-gradient(to right, rgba(255, 255, 255, 0), #fff 1.5rem);
+  border-radius: 0 10px 10px 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
 }
 
+.sort-task-card:hover .sort-task-card-actions,
+.sort-task-card:focus-within .sort-task-card-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.sort-task-card.dragging .sort-task-card-actions,
+.sort-task-card.source-placeholder .sort-task-card-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Apple-style text actions: blue Edit, red Delete, no chrome. */
 .sort-task-card-action {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  color: #0071E3;
+  padding: 0;
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .sort-task-card-action.danger {
-  background: #FBEFEF;
   color: #FF3B30;
-}
-
-.sort-task-card-action.text-action {
-  width: auto;
-  min-width: 0;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: #0071E3;
-  background: transparent;
 }
 
 .sort-task-card-action:hover {
-  background: #E8E8ED;
+  color: #0056B3;
 }
 
 .sort-task-card-action.danger:hover {
-  background: #FBEFEF;
-  color: #FF3B30;
-}
-
-.sort-task-card-action.text-action:hover {
-  background: #F0F4FF;
-  color: #0056B3;
+  color: #D70015;
 }
 
 .sort-task-card-action:focus-visible {
@@ -1980,12 +2024,6 @@ button:focus-visible {
   align-items: start;
 }
 
-.sort-cell-items .sort-task-card-actions {
-  grid-column: 1;
-  justify-self: start;
-  margin-top: 0.2rem;
-}
-
 .sort-cell-items .sort-task-card-text {
   max-height: none;
   overflow: visible;
@@ -2003,11 +2041,6 @@ button:focus-visible {
 @media (max-width: 1120px) {
   .sort-board-layout {
     grid-template-columns: 1fr;
-  }
-
-  /* Stacked layout: no matrix header beside the list to align with. */
-  .sort-unassigned-list {
-    padding-top: 0.5rem;
   }
 
   .sort-task-panel {
@@ -2112,11 +2145,6 @@ button:focus-visible {
     grid-template-columns: 10px minmax(0, 1fr);
     gap: 0.4rem;
     padding: 0.35rem 0.4rem;
-  }
-
-  .sort-task-card-actions {
-    grid-column: 2;
-    justify-self: start;
   }
 
   .sort-task-card-input {
