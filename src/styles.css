@@ -1045,6 +1045,43 @@ button:focus-visible {
   letter-spacing: 0.06em;
 }
 
+/* Reminders-style completion circle: always visible, check fades in on
+   hover, click completes the task. */
+.row-done-circle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border: 1.5px solid #D2D2D7;
+  border-radius: 50%;
+  background: transparent;
+  color: #0071E3;
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+}
+
+.row-done-circle .row-done-circle-check {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.row-done-circle:hover,
+.row-done-circle:focus-visible {
+  border-color: #0071E3;
+}
+
+.row-done-circle:hover .row-done-circle-check,
+.row-done-circle:focus-visible .row-done-circle-check {
+  opacity: 1;
+}
+
+.row-done-circle:active {
+  background: rgba(0, 113, 227, 0.12);
+}
+
 /* Rows mirror the Tasks list exactly: 56px, 12px radius, same type. */
 .sort-focus-text {
   min-width: 0;
@@ -1170,13 +1207,6 @@ button:focus-visible {
   background: none;
 }
 
-/* Apple text-button convention: blue actions, semibold for the primary
-   ("Done"), red only for the destructive one. */
-.sort-focus-action-button.complete {
-  color: #0071E3;
-  font-weight: 600;
-}
-
 .sort-focus-action-button.clear {
   color: #FF3B30;
 }
@@ -1237,13 +1267,17 @@ button:focus-visible {
 /* The task list mirrors Plan Your Day: numbered, roomy rows. Quadrant
    cards stay compact — the number is hidden everywhere else. */
 .sort-unassigned-list .sort-task-card {
-  grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+  grid-template-columns: auto 1.6rem minmax(0, 1fr) auto;
   gap: 0.6rem;
   min-height: 56px;
   padding: 0.85rem 1rem;
   border: 0;
   border-radius: 12px;
   background: #F5F5F7;
+}
+
+.sort-unassigned-list .sort-task-card-input {
+  grid-column: 3 / -1;
 }
 
 .sort-unassigned-list .sort-task-number {
@@ -2771,9 +2805,6 @@ thead th {
   color: #2F7A3D !important;
 }
 
-.sort-focus-action-button.complete:hover {
-  color: #0056B3;
-}
 
 /* Cancel is a neutral action, not a destructive one — Apple alert style. */
 .cancel-action-button {

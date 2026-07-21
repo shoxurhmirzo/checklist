@@ -1374,6 +1374,22 @@ const App = () => {
           <span />
           <span />
         </span>
+        {canEdit ? (
+          <button
+            type="button"
+            className="row-done-circle"
+            draggable={false}
+            onClick={(event) => {
+              event.stopPropagation();
+              completeTaskFromList(task.id);
+            }}
+            onDragStart={(event) => event.preventDefault()}
+            aria-label={`Mark ${task.text} done`}
+            title="Mark done"
+          >
+            <Check className="row-done-circle-check" size={13} strokeWidth={2.5} aria-hidden="true" />
+          </button>
+        ) : null}
         {typeof index === 'number' ? (
           <span className="sort-task-number" aria-hidden="true">
             {index + 1}.
@@ -2253,6 +2269,19 @@ const App = () => {
     track('task_focus_cleared');
   };
 
+  const completeTaskFromList = (taskId: string) => {
+    const task = divideAndConquerItems.find((item) => item.id === taskId);
+
+    if (!task || task.bucket === 'completed') {
+      return;
+    }
+
+    showCompletedDropFeedback(todayCompletedTasks.length + 1);
+    moveDivideAndConquerTask(taskId, 'completed');
+    setStatus('Done.');
+    track('task_completed', { completion_method: 'done_circle' });
+  };
+
   const handleDivideAndConquerDragStart = (event: React.DragEvent<HTMLElement>, taskId: string) => {
     setDraggedTaskId(taskId);
     setIsCompletedMagnetic(false);
@@ -2727,6 +2756,17 @@ const App = () => {
                             onDragEnd={handleDivideAndConquerDragEnd}
                             onDoubleClick={() => setEditingDivideAndConquerTaskId(task.id)}
                           >
+                            <button
+                              type="button"
+                              className="row-done-circle"
+                              onClick={() => completeFocusTask(task.id)}
+                              onDragStart={(event) => event.preventDefault()}
+                              draggable={false}
+                              aria-label={`Complete focus task ${task.text}`}
+                              title="Mark done"
+                            >
+                              <Check className="row-done-circle-check" size={13} strokeWidth={2.5} aria-hidden="true" />
+                            </button>
                             <span className="sort-focus-text" title={task.text}>
                               {task.text}
                             </span>
@@ -2739,15 +2779,6 @@ const App = () => {
                                 aria-label={`Edit focus task ${task.text}`}
                               >
                                 Edit
-                              </button>
-                              <button
-                                type="button"
-                                className="sort-focus-action-button complete"
-                                onClick={() => completeFocusTask(task.id)}
-                                onDragStart={(event) => event.preventDefault()}
-                                aria-label={`Complete focus task ${task.text}`}
-                              >
-                                Done
                               </button>
                               <button
                                 type="button"
