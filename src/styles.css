@@ -401,8 +401,7 @@ button {
 }
 
 .checklist-controls-row > .inline-field input,
-.checklist-controls-row > .inline-field select,
-.checklist-controls-row > .nav-link-button {
+.checklist-controls-row > .inline-field select {
   height: 2.25rem;
   line-height: 1.15;
 }
@@ -414,138 +413,11 @@ button {
   text-align-last: center;
 }
 
-.checklist-controls-row > .nav-link-button {
-  min-width: 84px;
-  text-align: center;
-}
-
-.top-controls .nav-link-button,
-.top-controls .plan-menu-trigger,
-.top-controls .history-icon-button,
-.top-controls .back-icon-button {
-  box-sizing: border-box;
-  height: 2.25rem;
-  line-height: 1.15;
-}
-
-.nav-link-button {
-  background: #fff;
-  text-decoration: none;
-}
-
-/* Hopeful sky blue — ideas deserve an inviting color. */
-.nav-link-button.ideas-nav-button:hover,
-.nav-link-button.ideas-nav-button:focus-visible {
-  background: #E8F5FF;
-  color: #0071E3;
-}
-
-.plan-menu-root {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 2.25rem;
-}
-
-.plan-menu-trigger {
-  position: relative;
-  height: 2.25rem;
-  min-width: 7rem;
-  border: 1px solid #D2D2D7 !important;
-  background: #fff !important;
-  padding: 0 0.55rem !important;
-  text-decoration: none;
-  transition:
-    background-color 150ms ease-out,
-    border-color 150ms ease-out,
-    color 150ms ease-out;
-}
-
-.plan-menu-trigger:hover,
-.plan-menu-trigger:focus-visible {
-  background: #f2c94c !important;
-  border-color: #b68a14 !important;
-  color: #1D1D1F !important;
-  box-shadow: inset 0 0 0 1px rgba(166, 123, 0, 0.18);
-}
-
-.plan-menu-trigger:active {
-  background: #f2c94c !important;
-  border-color: #b68a14 !important;
-  color: #1D1D1F !important;
-  box-shadow: none !important;
-}
-
-.plan-options-menu {
-  position: absolute;
-  top: calc(100% + 0.4rem);
-  left: 0;
-  z-index: 14;
-  display: none;
-  width: 180px;
-  overflow: hidden;
-  border: 1px solid #E8E8ED;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-}
-
-.plan-menu-root:focus-within .plan-options-menu,
-.plan-menu-root.menu-open .plan-options-menu {
-  display: grid;
-}
-
-.top-controls .plan-options-menu button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: #fff;
-  padding: 0.5rem 0.7rem;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.plan-menu-icon {
-  flex: 0 0 auto;
-  width: 1.2rem;
-  height: 1.2rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.brain-dump-menu-icon {
-  color: #1D1D1F;
-}
-
-.task-sorter-menu-icon {
-  color: #1D1D1F;
-}
-
-.top-controls .plan-options-menu button:hover,
-.top-controls .plan-options-menu button:focus-visible {
-  background: #F5F5F7;
-  box-shadow: none;
-}
-
 .top-controls button:hover,
-.sort-out-button:hover,
-.plain-button:hover,
 .add-row-form button:hover {
   border-color: #1D1D1F;
   background: #F5F5F7;
   box-shadow: inset 0 0 0 1px rgba(22, 22, 22, 0.08);
-}
-
-
-.sort-out-button:hover {
-  background: #F5F5F7;
 }
 
 .sheet-actions {
@@ -590,111 +462,16 @@ button {
   font-weight: 500;
 }
 
-.nav-link-button.active {
-  background: #E8E8ED;
-  text-decoration: none;
-}
-
-.nav-link-button:hover {
-  background: #E8E8ED;
-}
-
-.nav-link-button.active:hover {
-  background: #E8E8ED;
-}
-
 button:focus-visible {
   outline: 2px solid rgba(0, 113, 227, 0.3);
   outline-offset: 2px;
 }
 
-/* Keep the familiar text underline while giving descenders enough breathing
-   room so the line never cuts through the glyphs. */
-.plan-menu-trigger,
-.nav-link-button,
-.nav-text-link,
 .sort-out-button,
 .sort-clear-all-button,
 .sort-focus-action-button {
   text-decoration: none !important;
   text-decoration-skip-ink: auto;
-}
-
-.plan-menu-trigger:hover,
-.plan-menu-trigger:focus-visible,
-.nav-link-button:hover,
-
-.nav-text-link {
-  border: 0;
-  background: transparent;
-  color: #1D1D1F;
-  padding: 0;
-  text-decoration: none;
-  text-underline-offset: 2px;
-  font-size: 0.95rem;
-}
-
-.nav-text-link:hover,
-.nav-text-link:focus-visible {
-}
-
-.history-icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0.35rem !important;
-}
-
-.back-icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0 !important;
-  font-size: 1.35rem;
-  line-height: 1;
-}
-
-.back-icon-button svg {
-  width: 1.3rem;
-  height: 1.3rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.forward-icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  padding: 0 !important;
-}
-
-.forward-icon-button svg {
-  width: 1.3rem;
-  height: 1.3rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.history-icon-button svg {
-  width: 1.3rem;
-  height: 1.3rem;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.7;
-  stroke-linecap: round;
-  stroke-linejoin: round;
 }
 
 .status-text {
@@ -3079,7 +2856,6 @@ thead th {
   .save-feedback-indicator svg,
   .cell-mark-icon,
   .cell-mark-menu,
-  .plan-menu-trigger,
   .sort-completion-feedback {
     animation: none;
     transition: none;
@@ -3148,20 +2924,6 @@ thead th {
   }
 }
 
-.text-button {
-  border: 0;
-  background: transparent;
-  color: #0071E3;
-  padding: 0.15rem 0;
-  font-size: 0.88rem;
-  font-weight: 500;
-}
-
-.text-button:hover,
-.text-button:focus-visible {
-  color: #0056B3;
-  background: transparent;
-}
 
 .idea-add-row {
   display: flex;
