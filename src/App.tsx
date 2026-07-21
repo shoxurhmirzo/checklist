@@ -3050,7 +3050,7 @@ const App = () => {
                           onClick={() => deleteIdea(idea.id)}
                           aria-label="Delete idea"
                         >
-                          ×
+                          Delete
                         </button>
                       </div>
                     </div>
