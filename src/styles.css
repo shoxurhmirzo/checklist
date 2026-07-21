@@ -1425,15 +1425,17 @@ button:focus-visible {
   padding: 1.5rem 1.25rem;
 }
 
+/* Section header, not a page title — matches .sort-focus-label. */
 .sort-tasks-title {
-  margin: 0 0 1rem 0;
+  margin: 0 0 0.6rem 0;
   padding: 0;
-  color: #1D1D1F;
-  font-size: 1.3rem;
-  font-weight: 700;
+  color: #6E6E73;
+  font-size: 0.8125rem;
+  font-weight: 600;
   line-height: 1.2;
-  text-align: center;
-  letter-spacing: -0.02em;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .sort-unassigned-list {
@@ -1452,7 +1454,9 @@ button:focus-visible {
   gap: 0.6rem;
   min-height: 56px;
   padding: 0.85rem 1rem;
+  border: 0;
   border-radius: 12px;
+  background: #F5F5F7;
 }
 
 .sort-unassigned-list .sort-task-number {
@@ -1482,6 +1486,7 @@ button:focus-visible {
 .sort-unassigned-list .sort-task-card-actions {
   right: 1rem;
   border-radius: 0 12px 12px 0;
+  background: linear-gradient(to right, rgba(245, 245, 247, 0), #F5F5F7 1.5rem);
 }
 
 .sort-unassigned-list .sort-task-card-action {
