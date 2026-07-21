@@ -2765,11 +2765,6 @@ const App = () => {
                     ) : (
                       <span className="sort-focus-text">Drag a task here.</span>
                     )}
-                    {draggedTaskId &&
-                    currentFocusTasks.length > 0 &&
-                    currentFocusTasks.length < MAX_CURRENT_FOCUS_TASKS ? (
-                      <span className="sort-focus-hint">Or drop another here.</span>
-                    ) : null}
                   </p>
                 </div>
               </div>

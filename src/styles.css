@@ -1320,19 +1320,6 @@ button:focus-visible {
   flex: 0 0 auto;
 }
 
-/* The extra-capacity hint renders only mid-drag; it reads as an open
-   drop slot, not a floating caption. */
-.sort-focus-hint {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 48px;
-  border-radius: 10px;
-  background: #FFFFFF;
-  color: #0071E3;
-  font-size: 0.9rem;
-}
-
 /* Empty drop target lights up as the receiving slot while dragging. */
 .sort-focus-line.drop-ready:not(.has-focus) .sort-focus-text {
   background: #FFFFFF;
