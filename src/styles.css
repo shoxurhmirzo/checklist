@@ -3145,18 +3145,30 @@ thead th {
   color: #fff;
   padding: 0.65rem 1.5rem;
   font-size: 1rem;
-  font-weight: 600;
-  transition: background-color 150ms ease-out;
+  font-weight: 500;
+  transition:
+    background-color 150ms ease-out,
+    transform 90ms ease;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .idea-add-button:hover:not(:disabled) {
-  background: #0071E3;
+  background: #0056B3;
+}
+
+.idea-add-button:active:not(:disabled) {
+  background: #003C99;
+  transform: scale(0.98);
+}
+
+.idea-add-button:focus-visible {
+  outline: 2px solid rgba(0, 113, 227, 0.3);
+  outline-offset: 2px;
 }
 
 .idea-add-button:disabled {
-  background: #D2D2D7;
+  background: #A1A1A6;
   color: #FFFFFF;
   cursor: not-allowed;
 }
