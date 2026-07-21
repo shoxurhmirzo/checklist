@@ -1216,11 +1216,8 @@ button:focus-visible {
 }
 
 .sort-board-intro-actions {
-  display: inline-flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 0.55rem;
-  flex-wrap: wrap;
+  display: block;
+  text-align: left;
 }
 
 .sort-board-toolbar {
@@ -1235,38 +1232,36 @@ button:focus-visible {
   padding-right: 0.25rem;
 }
 
+/* Apple inset-grouped-list style: no nested borders — a quiet section
+   header and filled rows spanning the card's content width. */
 .sort-focus-line {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: stretch;
-  justify-content: center;
-  gap: 0.6rem;
-  max-width: min(760px, calc(100vw - 2rem));
-  min-width: min(420px, calc(100vw - 2rem));
-  min-height: 3.8rem;
-  margin: 0.5rem 0 0;
-  padding: 1rem 1.25rem;
-  border: 1px solid #E8E8ED;
+  gap: 0.5rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  border: 0;
   border-radius: 12px;
-  background: #FFFFFF;
+  background: transparent;
   line-height: 1.4;
   text-align: left;
-  transition: background-color 150ms ease-out, border-color 150ms ease-out;
+  transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
 }
 
 .sort-focus-line.drop-ready {
-  background: #FFFFFF;
-  border-color: #0071E3;
-  border-width: 2px;
+  background: #F0F7FF;
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.35);
 }
 
 .sort-focus-label {
   flex: 0 0 auto;
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
-  font-size: 1rem;
+  font-size: 0.8125rem;
   font-weight: 600;
-  color: #1D1D1F;
-  letter-spacing: -0.01em;
+  color: #6E6E73;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .sort-focus-text {
@@ -1277,8 +1272,13 @@ button:focus-visible {
 }
 
 .sort-focus-line:not(.has-focus) .sort-focus-text {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  border-radius: 10px;
+  background: #F5F5F7;
+  padding: 0.75rem 1rem;
   color: #6E6E73;
-  font-style: italic;
 }
 
 .sort-focus-line.has-focus .sort-focus-text {
@@ -1292,9 +1292,9 @@ button:focus-visible {
   gap: 0.75rem;
   min-width: 0;
   min-height: 48px;
-  border: 1px solid #E8E8ED;
-  border-radius: 8px;
-  background: #FFFFFF;
+  border: 0;
+  border-radius: 10px;
+  background: #F5F5F7;
   padding: 0.75rem 1rem;
   cursor: grab;
 }
@@ -1302,7 +1302,7 @@ button:focus-visible {
 .sort-focus-item.dragging {
   opacity: 0.82;
   cursor: grabbing;
-  background: #F5F5F7;
+  background: #E8E8ED;
 }
 
 .sort-focus-item .sort-focus-text {
@@ -1321,7 +1321,6 @@ button:focus-visible {
   flex: 0 0 auto;
   color: #6E6E73;
   font-size: 0.85rem;
-  font-style: italic;
 }
 
 .sort-clear-all-button {

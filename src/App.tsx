@@ -2696,7 +2696,7 @@ const App = () => {
                     onDrop={handleCurrentFocusDrop}
                     aria-live="polite"
                   >
-                    <span className="sort-focus-label">Focus:</span>
+                    <span className="sort-focus-label">Focus</span>
                     {currentFocusTasks.length > 0 ? (
                       currentFocusTasks.map((task) =>
                         editingDivideAndConquerTaskId === task.id ? (
