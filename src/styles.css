@@ -204,7 +204,7 @@ button {
 /* Sheet selector */
 .top-controls .sheet-switch-select {
   height: 1.9rem !important;
-  padding: 0 2.5rem 0 0.7rem !important;
+  padding: 0 2.5rem 0 2.5rem !important;
   border: 0 !important;
   border-radius: 999px !important;
   background-color: #E8E8ED !important;
