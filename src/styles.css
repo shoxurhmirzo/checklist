@@ -245,39 +245,34 @@ button {
 }
 
 .sheet-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 0.7rem;
+  display: block;
   width: 100%;
   text-align: left;
-  padding: 0.6rem 0.75rem;
+  padding: 0;
   border: none !important;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
-  color: #6E6E73;
+  color: #0071E3;
   font-size: 0.95rem;
-  font-weight: 500;
+  font-weight: 400;
   cursor: pointer;
-  transition: background-color 100ms ease-out;
-  overflow: hidden;
+  transition: color 150ms ease-out;
+  overflow: visible;
 }
 
 .sheet-menu-item:hover,
 .sheet-menu-item:focus-visible {
-  background: #F5F5F7;
-  color: #1D1D1F;
+  background: transparent;
+  color: #0056B3;
   outline: none;
 }
 
 .sheet-menu-item:active {
-  background: #E8E8ED;
+  background: transparent;
 }
 
 .sheet-menu-item svg {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  color: inherit;
+  display: none;
 }
 
 /* Compound selector so the broad .top-controls button color can't win. */
