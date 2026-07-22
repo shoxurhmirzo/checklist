@@ -134,14 +134,15 @@ button {
 .top-controls .mode-tab {
   position: relative;
   z-index: 1;
-  flex: 1 1 0;
-  height: calc(2.9rem - 6px);
+  flex: 1 1 auto;
+  height: auto;
   border: 0;
-  border-radius: 11px;
+  border-radius: 999px;
   background: transparent;
   color: #6E6E73;
   font-size: 1.05rem;
   line-height: 1.15;
+  padding: 0.4rem 0.6rem;
   transition: color 150ms ease-out;
 }
 
@@ -157,8 +158,8 @@ button {
   background: transparent;
   color: #1D1D1F;
   box-shadow: none;
-  outline: 2px solid rgba(0, 113, 227, 0.3);
-  outline-offset: 2px;
+  outline: 2px solid rgba(0, 113, 227, 0.5);
+  outline-offset: 0px;
 }
 
 .top-controls .mode-tab.active,
