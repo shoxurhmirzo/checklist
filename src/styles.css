@@ -109,9 +109,9 @@ button {
   display: flex;
   align-items: center;
   width: min(560px, calc(100vw - 2rem));
-  height: 2.9rem;
+  height: 3.2rem;
   padding: 3px;
-  border-radius: 14px;
+  border-radius: 999px;
   background: #E8E8ED;
 }
 
@@ -121,7 +121,7 @@ button {
   bottom: 3px;
   left: 3px;
   width: calc(50% - 3px);
-  border-radius: 11px;
+  border-radius: 999px;
   background: #fff;
   box-shadow: 0 1px 5px rgba(22, 22, 22, 0.18);
   transition: transform 200ms ease-out;
@@ -145,12 +145,20 @@ button {
   transition: color 150ms ease-out;
 }
 
-.top-controls .mode-tab:hover,
+.top-controls .mode-tab:hover {
+  border-color: transparent;
+  background: transparent;
+  color: #1D1D1F;
+  box-shadow: none;
+}
+
 .top-controls .mode-tab:focus-visible {
   border-color: transparent;
   background: transparent;
   color: #1D1D1F;
   box-shadow: none;
+  outline: 2px solid rgba(0, 113, 227, 0.3);
+  outline-offset: 2px;
 }
 
 .top-controls .mode-tab.active,
@@ -917,22 +925,19 @@ button:focus-visible {
   border-radius: 8px;
   background: #0071E3;
   color: #FFFFFF;
-  padding: 0.5rem 1rem;
-  font-size: inherit;
+  padding: 0.6rem 1.2rem;
+  font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
-  transition:
-    background-color 150ms ease-out,
-    transform 90ms ease;
+  transition: background-color 150ms ease-out;
 }
 
-.sort-out-button:hover {
+.sort-out-button:hover:not(:disabled) {
   background: #0056B3;
 }
 
-.sort-out-button:active {
+.sort-out-button:active:not(:disabled) {
   background: #003C99;
-  transform: scale(0.98);
 }
 
 .sort-out-button:focus-visible {
@@ -940,15 +945,7 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
-.sort-out-button-icon {
-  width: 1.2rem;
-  height: 1.2rem;
-  object-fit: contain;
-  opacity: 1;
-}
-
-.sort-out-button:disabled,
-.sort-out-button:disabled:hover {
+.sort-out-button:disabled {
   background: #A1A1A6;
   color: #FFFFFF;
   cursor: not-allowed;
@@ -1333,7 +1330,7 @@ button:focus-visible {
 
 .sort-completion-zone {
   grid-column: 1;
-  grid-row: 4;
+  grid-row: 3;
   width: 100%;
   box-sizing: border-box;
   border: none;
@@ -1478,31 +1475,36 @@ button:focus-visible {
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto;
   column-gap: 0.1rem;
   row-gap: 0.5rem;
+  position: relative;
 }
 
 .sort-matrix-top-labels {
-  grid-column: 1;
-  grid-row: 1;
+  position: absolute;
+  top: 1.5rem;
+  left: 0;
+  right: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   width: 100%;
   padding: 0 0.25rem;
+  z-index: 2;
 }
 
 .sort-matrix-bottom-labels {
   grid-column: 1;
-  grid-row: 3;
+  grid-row: 2;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   width: 100%;
   padding: 0 0.25rem;
 }
 
-/* mode-eisenhower: hide cell footers, show outer labels instead */
-.sort-matrix-wrap.mode-eisenhower .sort-cell-footer {
+/* Hide outer labels on matrix edges — labels now inside quadrants */
+.sort-matrix-wrap .sort-matrix-top-labels,
+.sort-matrix-wrap .sort-matrix-bottom-labels {
   visibility: hidden;
 }
 
@@ -1539,9 +1541,9 @@ button:focus-visible {
 
 .sort-matrix {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 1;
   width: 100%;
-  border: 1px solid #6E6E73;
+  border: 1px solid #D2D2D7;
   border-radius: 10px;
   background: #fff;
   display: flex;
@@ -1577,8 +1579,8 @@ button:focus-visible {
   min-width: 0;
   min-height: 0;
   padding: 0.85rem 0.85rem 0.7rem;
-  border-left: 1px solid #6E6E73;
-  border-top: 1px solid #6E6E73;
+  border-left: 1px solid #D2D2D7;
+  border-top: 1px solid #D2D2D7;
   background: #fff;
   overflow: hidden;
 }
@@ -1621,16 +1623,28 @@ button:focus-visible {
 .sort-cell-footer {
   flex: 0 0 auto;
   width: 100%;
-  padding-top: 0.75rem;
+  padding-top: 1.5rem;
   text-align: center;
   font-weight: 600;
-  opacity: 0.6;
+  color: #6E6E73;
+  opacity: 1;
 }
 
-.sort-cell-top-left .sort-cell-footer    { color: #FF3B30; }
-.sort-cell-top-right .sort-cell-footer   { color: #FF9500; }
-.sort-cell-bottom-left .sort-cell-footer { color: #0071E3; }
-.sort-cell-bottom-right .sort-cell-footer { color: #34C759; }
+.sort-cell-top-left .sort-cell-footer {
+  color: #FF3B30;
+}
+
+.sort-cell-top-right .sort-cell-footer {
+  color: #FF9500;
+}
+
+.sort-cell-bottom-left .sort-cell-footer {
+  color: #0071E3;
+}
+
+.sort-cell-bottom-right .sort-cell-footer {
+  color: #34C759;
+}
 
 .sort-cell-scroll-indicator {
   position: absolute;
