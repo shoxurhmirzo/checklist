@@ -158,8 +158,8 @@ button {
   background: transparent;
   color: #1D1D1F;
   box-shadow: none;
-  outline: 4px solid rgba(0, 113, 227, 0.7);
-  outline-offset: 2px;
+  outline: 3px solid rgba(0, 113, 227, 0.8);
+  outline-offset: -3px;
 }
 
 .top-controls .mode-tab.active,
