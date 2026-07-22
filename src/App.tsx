@@ -254,7 +254,7 @@ const MATRIX_QUADRANT_LABELS: Record<
   MatrixLabelMode,
   { topLeft: string; topRight: string; bottomLeft: string; bottomRight: string }
 > = {
-  attraction: { topLeft: 'Do First', topRight: 'Enjoy', bottomLeft: 'Avoid', bottomRight: 'Eliminate' },
+  attraction: { topLeft: 'Productive & Attractive', topRight: 'Productive & Unattractive', bottomLeft: 'Unproductive & Attractive', bottomRight: 'Unproductive & Unattractive' },
   eisenhower: {
     topLeft: 'Urgent & Important',
     topRight: 'Important, Not Urgent',
@@ -2661,12 +2661,6 @@ const App = () => {
                   }
                 >
                   Prioritize
-                  <img
-                    className="sort-out-button-icon"
-                    src="https://cdn-icons-png.flaticon.com/512/8989/8989469.png"
-                    alt=""
-                    aria-hidden="true"
-                  />
                 </button>
               </div>
                 </div>
@@ -2833,8 +2827,8 @@ const App = () => {
                         </>
                       ) : (
                         <>
-                          <span className="sort-column-header sort-outer-label-red">Productive &amp; Unattractive</span>
-                          <span className="sort-column-header sort-outer-label-orange">Productive &amp; Attractive</span>
+                          <span className="sort-column-header">Productive &amp; Unattractive</span>
+                          <span className="sort-column-header">Productive &amp; Attractive</span>
                         </>
                       )}
                     </div>
@@ -2858,7 +2852,7 @@ const App = () => {
                             'productive-attractive',
                             divideAndConquerBuckets['productive-attractive'],
                           )}
-                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.topLeft}</div>
+                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.topLeft : MATRIX_QUADRANT_LABELS.attraction.topLeft}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-top-right ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -2878,7 +2872,7 @@ const App = () => {
                             'productive-unattractive',
                             divideAndConquerBuckets['productive-unattractive'],
                           )}
-                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.topRight}</div>
+                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.topRight : MATRIX_QUADRANT_LABELS.attraction.topRight}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-bottom-left ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -2898,7 +2892,7 @@ const App = () => {
                             'unproductive-attractive',
                             divideAndConquerBuckets['unproductive-attractive'],
                           )}
-                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.bottomLeft}</div>
+                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.bottomLeft : MATRIX_QUADRANT_LABELS.attraction.bottomLeft}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-bottom-right ${draggedTaskId ? 'drop-ready' : ''}`}
@@ -2918,7 +2912,7 @@ const App = () => {
                             'unproductive-unattractive',
                             divideAndConquerBuckets['unproductive-unattractive'],
                           )}
-                          <div className="sort-cell-footer">{MATRIX_QUADRANT_LABELS.attraction.bottomRight}</div>
+                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.bottomRight : MATRIX_QUADRANT_LABELS.attraction.bottomRight}</div>
                         </div>
                       </div>
                     </div>
@@ -2934,8 +2928,8 @@ const App = () => {
                         </>
                       ) : (
                         <>
-                          <span className="sort-column-header sort-outer-label-blue">Unproductive &amp; Unattractive</span>
-                          <span className="sort-column-header sort-outer-label-green">Unproductive &amp; Attractive</span>
+                          <span className="sort-column-header">Unproductive &amp; Unattractive</span>
+                          <span className="sort-column-header">Unproductive &amp; Attractive</span>
                         </>
                       )}
                     </div>
