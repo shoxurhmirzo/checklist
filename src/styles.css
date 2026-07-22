@@ -87,7 +87,7 @@ button {
   flex-direction: column;
   gap: 1rem;
   min-width: 0;
-  padding: 1rem 0.5rem;
+  padding: 1rem 0.5rem 0.5rem 0.5rem;
 }
 
 .top-controls {
