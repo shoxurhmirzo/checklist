@@ -103,59 +103,67 @@ button {
   width: 100%;
 }
 
-/* Apple-style text-only tabs */
+/* Apple-style segmented control */
 .mode-tabs {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
   width: min(560px, calc(100vw - 2rem));
-  height: auto;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  gap: 2rem;
+  height: 2.9rem;
+  padding: 3px;
+  border-radius: 14px;
+  background: #E8E8ED;
 }
 
 .mode-tabs-thumb {
-  display: none;
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border-radius: 11px;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(22, 22, 22, 0.18);
+  transition: transform 200ms ease-out;
 }
 
 .mode-tabs.work-active .mode-tabs-thumb {
-  display: none;
+  transform: translateX(100%);
 }
 
 .top-controls .mode-tab {
   position: relative;
   z-index: 1;
-  flex: 0 0 auto;
-  height: auto;
+  flex: 1 1 0;
+  height: calc(2.9rem - 6px);
   border: 0;
-  border-radius: 0;
+  border-radius: 11px;
   background: transparent;
   color: #6E6E73;
   font-size: 1.05rem;
   line-height: 1.15;
-  font-weight: 400;
-  padding: 0.5rem 0;
   transition: color 150ms ease-out;
-  cursor: pointer;
 }
 
 .top-controls .mode-tab:hover {
+  border-color: transparent;
+  background: transparent;
   color: #1D1D1F;
+  box-shadow: none;
 }
 
 .top-controls .mode-tab:focus-visible {
-  outline: 2px solid rgba(0, 113, 227, 0.3);
-  outline-offset: 2px;
+  border-color: transparent;
+  background: transparent;
+  color: #1D1D1F;
+  box-shadow: none;
 }
 
 .top-controls .mode-tab.active,
 .top-controls .mode-tab.active:hover,
 .top-controls .mode-tab.active:focus-visible {
   color: #1D1D1F;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 /* Work sub-page tabs */
