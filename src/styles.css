@@ -1332,8 +1332,8 @@ button:focus-visible {
 }
 
 .sort-completion-zone {
-  grid-column: 2;
-  grid-row: 3;
+  grid-column: 1;
+  grid-row: 4;
   width: 100%;
   box-sizing: border-box;
   border: none;
@@ -1477,14 +1477,14 @@ button:focus-visible {
 .sort-matrix-wrap {
   min-width: 0;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto;
   column-gap: 0.1rem;
   row-gap: 0.5rem;
 }
 
 .sort-matrix-top-labels {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1493,7 +1493,7 @@ button:focus-visible {
 }
 
 .sort-matrix-bottom-labels {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 3;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -1501,14 +1501,9 @@ button:focus-visible {
   padding: 0 0.25rem;
 }
 
-/* mode-eisenhower: hide axis labels & cell footers, show outer labels instead */
-.sort-matrix-wrap.mode-eisenhower .sort-axis-label,
+/* mode-eisenhower: hide cell footers, show outer labels instead */
 .sort-matrix-wrap.mode-eisenhower .sort-cell-footer {
   visibility: hidden;
-}
-
-.sort-matrix-wrap.mode-eisenhower .sort-completion-zone {
-  grid-row: 4;
 }
 
 /* Outer label colors */
@@ -1543,7 +1538,7 @@ button:focus-visible {
 }
 
 .sort-matrix {
-  grid-column: 2;
+  grid-column: 1;
   grid-row: 2;
   width: 100%;
   border: 1px solid #6E6E73;
@@ -2583,18 +2578,16 @@ thead th {
 
 /* Inner cards inside the shell card, matching the 12px inner tier. */
 .history-day {
-  border: 1px solid #E8E8ED;
+  border: 0;
   border-radius: 12px;
-  background: #FFFFFF;
+  background: #F5F5F7;
   padding: 1.2rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   margin-bottom: 0;
 }
 
 .history-day.is-today {
-  border-color: #E8E8ED;
-  background: #FFFFFF;
-  box-shadow: 0 2px 8px rgba(0, 113, 227, 0.08);
+  border: 0;
+  background: #F5F5F7;
 }
 
 .history-day-header {
@@ -2673,7 +2666,6 @@ thead th {
   justify-content: space-between;
   gap: 0.8rem;
   border: none;
-  border-bottom: 1px solid #E8E8ED;
   border-radius: 0;
   background: transparent;
   padding: 0.75rem 0;
@@ -2688,7 +2680,14 @@ thead th {
 }
 
 .history-task:hover {
-  background: #F5F5F7;
+  background: transparent;
+}
+
+.history-task:hover .history-edit-button,
+.history-task:hover .history-complete-button,
+.history-task:has(.history-task-edit-input) .history-save-button,
+.history-task:has(.history-task-edit-input) .history-cancel-button {
+  opacity: 1;
 }
 
 .history-task-text {
@@ -2717,7 +2716,8 @@ thead th {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  transition: background-color 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out;
+  opacity: 0;
 }
 
 .history-edit-button:hover,
@@ -2763,7 +2763,8 @@ thead th {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 150ms ease-out;
+  transition: background-color 150ms ease-out, opacity 150ms ease-out;
+  opacity: 0;
 }
 
 .history-complete-button:hover {
@@ -2896,6 +2897,13 @@ thead th {
     stroke-dashoffset: 0;
   }
 
+}
+
+@media (hover: none) {
+  .history-edit-button,
+  .history-complete-button {
+    opacity: 1;
+  }
 }
 
 @media (max-width: 640px) {

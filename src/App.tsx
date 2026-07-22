@@ -2833,14 +2833,10 @@ const App = () => {
                         </>
                       ) : (
                         <>
-                          <span className="sort-column-header">Unattractive</span>
-                          <span className="sort-column-header">Attractive</span>
+                          <span className="sort-column-header sort-outer-label-red">Productive &amp; Unattractive</span>
+                          <span className="sort-column-header sort-outer-label-orange">Productive &amp; Attractive</span>
                         </>
                       )}
-                    </div>
-                    <div className="sort-axis-labels" aria-hidden="true">
-                      <span className="sort-axis-label">Productive</span>
-                      <span className="sort-axis-label">Unproductive</span>
                     </div>
                     <div className="sort-matrix" role="application" aria-label="Daily planning matrix">
                       <div className="sort-matrix-body">
@@ -2926,16 +2922,23 @@ const App = () => {
                         </div>
                       </div>
                     </div>
-                    {matrixLabelMode === 'eisenhower' ? (
-                      <div className="sort-matrix-bottom-labels" aria-hidden="true">
-                        <span className="sort-column-header sort-outer-label-blue">
-                          {MATRIX_QUADRANT_LABELS.eisenhower.bottomLeft}
-                        </span>
-                        <span className="sort-column-header sort-outer-label-green">
-                          {MATRIX_QUADRANT_LABELS.eisenhower.bottomRight}
-                        </span>
-                      </div>
-                    ) : null}
+                    <div className="sort-matrix-bottom-labels" aria-hidden="true">
+                      {matrixLabelMode === 'eisenhower' ? (
+                        <>
+                          <span className="sort-column-header sort-outer-label-blue">
+                            {MATRIX_QUADRANT_LABELS.eisenhower.bottomLeft}
+                          </span>
+                          <span className="sort-column-header sort-outer-label-green">
+                            {MATRIX_QUADRANT_LABELS.eisenhower.bottomRight}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="sort-column-header sort-outer-label-blue">Unproductive &amp; Unattractive</span>
+                          <span className="sort-column-header sort-outer-label-green">Unproductive &amp; Attractive</span>
+                        </>
+                      )}
+                    </div>
                     <section
                       ref={completedZoneRef}
                       className={`sort-completion-zone ${isCompletedMagnetic ? 'magnetic' : ''}`}
