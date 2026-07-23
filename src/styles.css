@@ -2130,18 +2130,30 @@ thead th {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.45rem;
+  gap: 0.5rem;
   width: 100%;
 }
 
 .sana-header input {
-  width: 122px;
-  min-width: 122px;
+  width: 130px;
+  min-width: 130px;
   border: 1px solid #D2D2D7;
-  border-radius: 6px;
+  border-radius: 12px;
   background: #fff;
   color: #1D1D1F;
-  padding: 0.15rem 0.25rem;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.95rem;
+  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.sana-header input:hover {
+  border-color: #A1A1A6;
+}
+
+.sana-header input:focus {
+  border-color: #0071E3;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.1);
 }
 
 .date-cell {
