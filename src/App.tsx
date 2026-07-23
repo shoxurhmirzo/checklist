@@ -13,6 +13,8 @@ import {
   useState,
 } from 'react';
 import { track, trackError } from './analytics';
+import { TopBanner } from './TopBanner';
+import { getQuoteForDate } from './dailyQuotes';
 
 // pdf.js is heavy (~600 KB); load it only when the plan page renders.
 const PdfViewer = lazy(() => import('./PdfViewer').then((module) => ({ default: module.PdfViewer })));
@@ -27,11 +29,11 @@ import {
   Upload,
 } from 'lucide-react';
 import {
-  COLUMN_COUNT,
   createRow,
   createSheet,
   formatMonthValue,
   generateColumnLabelsForMonth,
+  getDaysInMonth,
   parseMonthValue,
 } from './defaults';
 import {
@@ -46,9 +48,12 @@ import {
   normalizeIdeaPlaces,
   normalizeIdeas,
   normalizeLastRolloverDate,
+  normalizeRoutines,
   normalizeSheets,
   saveAppState,
 } from './storage';
+import { MonthPicker } from './MonthPicker';
+import { SegmentedControl } from './SegmentedControl';
 import type {
   AppState,
   CheckState,
@@ -58,6 +63,8 @@ import type {
   DivideAndConquerBucket,
   DivideAndConquerTask,
   IdeaRecord,
+  RoutinePeriod,
+  RoutineTask,
   SectionId,
 } from './types';
 
@@ -66,12 +73,13 @@ const COMPLETED_MAGNETIC_DISTANCE = 60;
 const MIN_DIVIDE_AND_CONQUER_TASKS_TO_SORT = 5;
 
 
-type AppView = 'checklist' | 'planner' | 'sortBoard' | 'history' | 'ideas';
+type AppView = 'checklist' | 'routines' | 'planner' | 'sortBoard' | 'history' | 'ideas';
 
 // Views live in the URL hash so deep links and the back button work on GitHub
 // Pages, and every switch registers as a PostHog $pageview via pushState.
 const VIEW_HASHES: Record<AppView, string> = {
   checklist: '#/',
+  routines: '#/routines',
   planner: '#/plan',
   sortBoard: '#/sort',
   history: '#/history',
@@ -174,6 +182,77 @@ const makeDivideAndConquerTaskId = () =>
 
 const stripDivideAndConquerLinePrefix = (line: string) => line.replace(/^\s*\d+\.\s*/, '');
 
+// A single hidden mirror element, reused across every caret measurement so we
+// don't allocate + append + remove a fresh <div> on each Arrow key press.
+let caretMeasureMirror: HTMLDivElement | null = null;
+const getCaretMeasureMirror = (): HTMLDivElement => {
+  if (!caretMeasureMirror) {
+    caretMeasureMirror = document.createElement('div');
+    caretMeasureMirror.setAttribute('aria-hidden', 'true');
+    caretMeasureMirror.style.position = 'absolute';
+    caretMeasureMirror.style.top = '-9999px';
+    caretMeasureMirror.style.left = '-9999px';
+    caretMeasureMirror.style.visibility = 'hidden';
+    caretMeasureMirror.style.whiteSpace = 'pre-wrap';
+    caretMeasureMirror.style.overflowWrap = 'break-word';
+    caretMeasureMirror.style.height = 'auto';
+  }
+  return caretMeasureMirror;
+};
+
+// Detects whether the caret sits on the first / last *visual* line of a textarea
+// (accounting for soft-wrapped text), so Arrow Up/Down can hand off to the
+// adjacent task row only at the real edges. Falls back to treating it as a
+// single line if measurement fails.
+const getCaretEdgeLines = (
+  textarea: HTMLTextAreaElement,
+): { onFirstLine: boolean; onLastLine: boolean } => {
+  try {
+    const style = window.getComputedStyle(textarea);
+    const lineHeight = parseFloat(style.lineHeight) || parseFloat(style.fontSize) * 1.2;
+    const paddingTop = parseFloat(style.paddingTop) || 0;
+    const paddingBottom = parseFloat(style.paddingBottom) || 0;
+
+    // Fast path: when the textarea's own content is a single visual line there's
+    // nothing wrapped, so the caret is on both the first and last line. Skips the
+    // mirror build + forced reflow that otherwise ran on every Arrow key press.
+    if (textarea.scrollHeight - paddingTop - paddingBottom < lineHeight * 1.5) {
+      return { onFirstLine: true, onLastLine: true };
+    }
+
+    const mirror = getCaretMeasureMirror();
+    const copyProps = [
+      'box-sizing', 'width', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left',
+      'border-top-width', 'border-right-width', 'border-bottom-width', 'border-left-width',
+      'font-family', 'font-size', 'font-weight', 'font-style', 'letter-spacing', 'text-transform',
+      'line-height', 'tab-size',
+    ];
+    copyProps.forEach((prop) => {
+      mirror.style.setProperty(prop, style.getPropertyValue(prop));
+    });
+
+    const value = textarea.value;
+    const caret = textarea.selectionStart;
+    mirror.textContent = value.slice(0, caret);
+    const marker = document.createElement('span');
+    marker.textContent = value.slice(caret) || '​';
+    mirror.appendChild(marker);
+    document.body.appendChild(mirror);
+
+    const caretTop = marker.offsetTop - paddingTop;
+    const textHeight = mirror.scrollHeight - paddingTop - paddingBottom;
+
+    document.body.removeChild(mirror);
+
+    return {
+      onFirstLine: caretTop < lineHeight * 0.75,
+      onLastLine: caretTop >= textHeight - lineHeight * 1.25,
+    };
+  } catch {
+    return { onFirstLine: true, onLastLine: true };
+  }
+};
+
 const createDivideAndConquerDraftRow = (text = ''): DivideAndConquerDraftRow => ({
   id: makeDivideAndConquerTaskId(),
   text,
@@ -230,6 +309,9 @@ const getLocalDateString = (date = new Date()) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 const LAST_EXPORT_STORAGE_KEY = 'checklist:lastExportAt';
+// Stores the date the daily-quote banner was dismissed, so it stays hidden for
+// the rest of that day and returns the next day with the next quote.
+const BANNER_DISMISS_STORAGE_KEY = 'checklist:bannerDismissedDate';
 
 const PLAN_PDF_URL = `${import.meta.env.BASE_URL}qarmoqlar.pdf`;
 const PLAN_PDF_TITLE = 'Qarmoqlar';
@@ -285,6 +367,74 @@ const loadLastWorkView = (): AppView => {
 const autoSizeTextArea = (element: HTMLTextAreaElement) => {
   element.style.height = 'auto';
   element.style.height = `${element.scrollHeight}px`;
+};
+
+// Focus the textarea matching `selector` within `container` on the next frame
+// (after the list re-renders) and place the caret at `cursorPosition`, clamped
+// to the value length. Shared by the divide-and-conquer and routine editors.
+const focusRowTextArea = (
+  container: HTMLElement | null,
+  selector: string,
+  cursorPosition?: number,
+) => {
+  requestAnimationFrame(() => {
+    const input = container?.querySelector<HTMLTextAreaElement>(selector);
+
+    if (!input) {
+      return;
+    }
+
+    const nextCursorPosition = Math.min(cursorPosition ?? input.value.length, input.value.length);
+    input.focus();
+    input.setSelectionRange(nextCursorPosition, nextCursorPosition);
+  });
+};
+
+// Shared split/merge surgery for the textarea-per-row editors (divide-and-conquer
+// drafts and routines). Both are pure over a generic {id, text} row, so each
+// handler keeps its own key routing, focus, commit, and grouping while the list
+// transforms live in one place.
+interface EditableRow {
+  id: string;
+  text: string;
+}
+
+// Splits the row `targetId` in two: it keeps `beforeText`, and `newRow` (already
+// carrying the tail text plus any extra fields, e.g. a routine's period) is
+// inserted right after it. Returns the list unchanged if the target is gone.
+const splitEditableRow = <T extends EditableRow>(
+  rows: T[],
+  targetId: string,
+  beforeText: string,
+  newRow: T,
+): T[] => {
+  const targetIndex = rows.findIndex((row) => row.id === targetId);
+
+  if (targetIndex < 0) {
+    return rows;
+  }
+
+  return [
+    ...rows.slice(0, targetIndex),
+    { ...rows[targetIndex], text: beforeText },
+    newRow,
+    ...rows.slice(targetIndex + 1),
+  ];
+};
+
+// Merges the row `targetId` into `previousId`: the predecessor absorbs the
+// target's text and the target is removed. The caller decides which row counts
+// as the predecessor (adjacent by index, or previous within the same group).
+const mergeEditableRows = <T extends EditableRow>(rows: T[], targetId: string, previousId: string): T[] => {
+  const targetIndex = rows.findIndex((row) => row.id === targetId);
+  const previousIndex = rows.findIndex((row) => row.id === previousId);
+
+  if (targetIndex < 0 || previousIndex < 0) {
+    return rows;
+  }
+
+  const merged = { ...rows[previousIndex], text: `${rows[previousIndex].text}${rows[targetIndex].text}` };
+  return rows.map((row) => (row.id === previousId ? merged : row)).filter((row) => row.id !== targetId);
 };
 
 const formatIdeaTimestamp = (isoTimestamp: string) => {
@@ -411,6 +561,10 @@ const App = () => {
   const [placePicker, setPlacePicker] = useState<{ mode: 'new'; text: string } | { mode: 'existing'; ideaId: string } | null>(null);
   const [newPlaceDraft, setNewPlaceDraft] = useState('');
   const [isEditingPlaces, setIsEditingPlaces] = useState(false);
+  const [routines, setRoutines] = useState<RoutineTask[]>([]);
+  const [routinePeriod, setRoutinePeriod] = useState<RoutinePeriod>('morning');
+  const [isEditingRoutines, setIsEditingRoutines] = useState(false);
+  const routinesListRef = useRef<HTMLDivElement | null>(null);
   const [lastRolloverDate, setLastRolloverDate] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragInsertionTarget, setDragInsertionTarget] = useState<DragInsertionTarget | null>(null);
@@ -500,6 +654,11 @@ const App = () => {
   }, []);
 
   const [status, setStatus] = useState('Loading…');
+  const [bannerDismissedToday, setBannerDismissedToday] = useState(
+    () => window.localStorage.getItem(BANNER_DISMISS_STORAGE_KEY) === getLocalDateString(),
+  );
+  const dailyQuote = getQuoteForDate();
+  const showBanner = !bannerDismissedToday && dailyQuote !== null;
   const [isRenamingSheet, setIsRenamingSheet] = useState(false);
   const [sheetNameDraft, setSheetNameDraft] = useState('');
   const [isSheetMenuOpen, setIsSheetMenuOpen] = useState(false);
@@ -526,6 +685,7 @@ const App = () => {
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null);
   const [editingHistoryTask, setEditingHistoryTask] = useState<HistoryTaskEdit | null>(null);
   const [historyTaskDraft, setHistoryTaskDraft] = useState('');
+  const historyEditRef = useRef<HTMLLIElement | null>(null);
   const [planSplitPercent, setPlanSplitPercent] = useState(loadPlanSplitPercent);
   const [isPlanSplitDragging, setIsPlanSplitDragging] = useState(false);
   const planSplitRef = useRef<HTMLDivElement | null>(null);
@@ -589,21 +749,12 @@ const App = () => {
     });
   };
 
-  const focusDivideAndConquerDraftRow = (rowIndex: number, cursorPosition?: number) => {
-    requestAnimationFrame(() => {
-      const input = divideAndConquerEditorRef.current?.querySelector<HTMLTextAreaElement>(
-        `[data-dq-row-index="${rowIndex}"]`,
-      );
-
-      if (!input) {
-        return;
-      }
-
-      const nextCursorPosition = Math.min(cursorPosition ?? input.value.length, input.value.length);
-      input.focus();
-      input.setSelectionRange(nextCursorPosition, nextCursorPosition);
-    });
-  };
+  const focusDivideAndConquerDraftRow = (rowIndex: number, cursorPosition?: number) =>
+    focusRowTextArea(
+      divideAndConquerEditorRef.current,
+      `[data-dq-row-index="${rowIndex}"]`,
+      cursorPosition,
+    );
 
   const commitDivideAndConquerDraftRows = (rows: DivideAndConquerDraftRow[], flush = false) => {
     const nextRows = rows.length > 0 ? rows : [createDivideAndConquerDraftRow()];
@@ -796,6 +947,14 @@ const App = () => {
         setDailyHistory(rolled.slice.dailyHistory);
         setIdeas(storedState.ideas);
         setIdeaPlaces(storedState.ideaPlaces);
+        // A real day change resets the morning routine so it starts fresh; a
+        // same-day reload leaves checks intact (applyDailyRollover returns
+        // didRollover === false when today <= lastRolloverDate).
+        setRoutines(
+          rolled.didRollover && storedState.lastRolloverDate !== null
+            ? storedState.routines.map((routine) => ({ ...routine, completed: false }))
+            : storedState.routines,
+        );
         setLastRolloverDate(rolled.slice.lastRolloverDate);
         // First-ever launch also reports didRollover; only a real day change counts.
         if (rolled.didRollover && storedState.lastRolloverDate !== null) {
@@ -850,6 +1009,7 @@ const App = () => {
       dailyHistory,
       ideas,
       ideaPlaces,
+      routines,
       lastRolloverDate,
     };
     latestAppStateRef.current = state;
@@ -887,6 +1047,7 @@ const App = () => {
     isLoaded,
     lastRolloverDate,
     persistenceBlocked,
+    routines,
     sheets,
   ]);
 
@@ -952,6 +1113,13 @@ const App = () => {
       setIsCompletedMagnetic(false);
 
       if (previousRolloverDate !== null) {
+        // A new day wipes the morning routine's checks so it can be run again.
+        setRoutines((current) => current.map((routine) => ({ ...routine, completed: false })));
+        // The dismissal flag was stamped with the previous day, so a session left
+        // open past midnight surfaces the new day's quote instead of staying hidden.
+        setBannerDismissedToday(
+          window.localStorage.getItem(BANNER_DISMISS_STORAGE_KEY) === getLocalDateString(),
+        );
         setStatus('New day. Your task list is ready.');
         track('daily_rollover', {
           completed_count: result.completedTexts.length,
@@ -1063,11 +1231,20 @@ const App = () => {
   }, [activeSheetId, sheets]);
 
   const activeSheet = sheets.find((sheet) => sheet.id === activeSheetId) ?? sheets[0] ?? null;
+  // Only render the days the selected month actually has (28/29 for Feb, 30, or 31).
+  const visibleColumnCount = activeSheet
+    ? getDaysInMonth(activeSheet.selectedYear, activeSheet.selectedMonth)
+    : 0;
   const markTotals = activeSheet
     ? activeSheet.sections.reduce(
         (totals, section) => {
           section.rows.forEach((row) => {
-            Object.values(row.checksByColumn).forEach((checkState) => {
+            Object.entries(row.checksByColumn).forEach(([column, checkState]) => {
+              // Ignore marks in columns the current month doesn't render, so the
+              // totals always match the visible grid.
+              if (Number(column) >= visibleColumnCount) {
+                return;
+              }
               if (checkState.mark === 'plus') {
                 totals.plus += 1;
               } else if (checkState.mark === 'minus') {
@@ -1144,6 +1321,25 @@ const App = () => {
     setHistoryTaskDraft('');
   };
 
+  // Clicking anywhere outside the open editor abandons the edit — matching Escape,
+  // so users don't have to hunt for the Cancel button.
+  useEffect(() => {
+    if (!editingHistoryTask) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && historyEditRef.current?.contains(event.target)) {
+        return;
+      }
+      setEditingHistoryTask(null);
+      setHistoryTaskDraft('');
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [editingHistoryTask]);
+
   const saveHistoryTaskEdit = () => {
     const text = historyTaskDraft.trim();
 
@@ -1193,12 +1389,20 @@ const App = () => {
       </h3>
       {entries.length > 0 ? (
         <ul className="history-task-list">
-          {entries.map((entry) => (
-            <li key={entry.id} className="history-task">
-              {editContext &&
+          {entries.map((entry) => {
+            const isEditingThis =
+              !!editContext &&
               editingHistoryTask?.date === editContext.date &&
               editingHistoryTask.kind === editContext.kind &&
-              editingHistoryTask.taskId === entry.id ? (
+              editingHistoryTask.taskId === entry.id;
+
+            return (
+              <li
+                key={entry.id}
+                className="history-task"
+                ref={isEditingThis ? historyEditRef : undefined}
+              >
+                {isEditingThis ? (
                 <>
                   <input
                     className="history-task-edit-input"
@@ -1242,8 +1446,9 @@ const App = () => {
                   ) : null}
                 </>
               )}
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="history-column-empty">{emptyText}</p>
@@ -1486,6 +1691,16 @@ const App = () => {
     resizeDivideAndConquerEditor();
   }, [activeView, divideAndConquerDraftRows]);
 
+  useLayoutEffect(() => {
+    if (activeView !== 'routines') {
+      return;
+    }
+
+    routinesListRef.current
+      ?.querySelectorAll<HTMLTextAreaElement>('.routine-item-input')
+      .forEach(autoSizeTextArea);
+  }, [activeView, routines]);
+
   useEffect(() => {
     if (activeView !== 'planner') {
       return;
@@ -1587,23 +1802,32 @@ const App = () => {
 
   const renderModeTabs = () => {
     const inWork = WORK_VIEWS.includes(activeView);
+    const mode = activeView === 'routines' ? 'routines' : inWork ? 'work' : 'habits';
 
     return (
       <div className="mode-bar-row">
-        <div className={`mode-tabs ${inWork ? 'work-active' : ''}`}>
+        <div className="mode-tabs" data-mode={mode}>
           <span className="mode-tabs-thumb" aria-hidden="true" />
           <button
             type="button"
-            className={`mode-tab ${inWork ? '' : 'active'}`}
-            aria-current={inWork ? undefined : 'page'}
+            className={`mode-tab ${mode === 'habits' ? 'active' : ''}`}
+            aria-current={mode === 'habits' ? 'page' : undefined}
             onClick={() => navigateToView('checklist')}
           >
-            Checklist
+            Habits
           </button>
           <button
             type="button"
-            className={`mode-tab ${inWork ? 'active' : ''}`}
-            aria-current={inWork ? 'page' : undefined}
+            className={`mode-tab ${mode === 'routines' ? 'active' : ''}`}
+            aria-current={mode === 'routines' ? 'page' : undefined}
+            onClick={() => navigateToView('routines')}
+          >
+            Routines
+          </button>
+          <button
+            type="button"
+            className={`mode-tab ${mode === 'work' ? 'active' : ''}`}
+            aria-current={mode === 'work' ? 'page' : undefined}
             onClick={() => navigateToView(lastWorkViewRef.current)}
           >
             Work
@@ -1614,19 +1838,13 @@ const App = () => {
   };
 
   const renderWorkTabs = (currentView: AppView) => (
-    <nav className="work-tabs" aria-label="Work pages">
-      {WORK_TAB_ITEMS.map(({ view, label }) => (
-        <button
-          key={view}
-          type="button"
-          className={`page-nav-link ${view === currentView ? 'active' : ''}`}
-          aria-current={view === currentView ? 'page' : undefined}
-          onClick={() => navigateToView(view)}
-        >
-          {label}
-        </button>
-      ))}
-    </nav>
+    <SegmentedControl
+      className="segmented-work"
+      ariaLabel="Work pages"
+      options={WORK_TAB_ITEMS.map(({ view, label }) => ({ value: view, label }))}
+      value={currentView}
+      onChange={(view) => navigateToView(view)}
+    />
   );
 
   const handleExport = () => {
@@ -1638,6 +1856,7 @@ const App = () => {
       dailyHistory,
       ideas,
       ideaPlaces,
+      routines,
       lastRolloverDate,
     });
     const timeStamp = new Date().toISOString().slice(0, 10);
@@ -1695,6 +1914,7 @@ const App = () => {
       setDailyHistory(normalizeDailyHistory(parsed.dailyHistory));
       setIdeas(normalizeIdeas(parsed.ideas));
       setIdeaPlaces(normalizeIdeaPlaces(parsed.ideaPlaces));
+      setRoutines(normalizeRoutines(parsed.routines));
       // Old backups carry no rollover date; stamping today keeps the imported
       // tasks from being swept into history on the next rollover check.
       setLastRolloverDate(normalizeLastRolloverDate(parsed.lastRolloverDate) ?? getLocalDateString());
@@ -1726,11 +1946,28 @@ const App = () => {
       });
     }
 
+    // Drop checks for days the new month doesn't have (e.g. day 31 when moving
+    // to February), so hidden columns can't retain marks that reappear on the
+    // next switch back or silently inflate totals and backups.
+    const daysInNewMonth = getDaysInMonth(parsedMonth.year, parsedMonth.month);
+
     updateActiveSheet((sheet) => ({
       ...sheet,
       selectedYear: parsedMonth.year,
       selectedMonth: parsedMonth.month,
       columnLabels: generateColumnLabelsForMonth(parsedMonth.year, parsedMonth.month),
+      sections: sheet.sections.map((section) => ({
+        ...section,
+        rows: section.rows.map((row) => {
+          const checksByColumn: Record<number, CheckState> = {};
+          for (const [column, checkState] of Object.entries(row.checksByColumn)) {
+            if (Number(column) < daysInNewMonth) {
+              checksByColumn[Number(column)] = checkState;
+            }
+          }
+          return { ...row, checksByColumn };
+        }),
+      })),
     }));
   };
 
@@ -1891,6 +2128,140 @@ const App = () => {
     });
   };
 
+  const focusRoutineRow = (routineId: string, cursorPosition?: number) =>
+    focusRowTextArea(routinesListRef.current, `[data-routine-id="${routineId}"]`, cursorPosition);
+
+  const addRoutine = (period: RoutinePeriod) => {
+    const newRoutine: RoutineTask = { id: makeDivideAndConquerTaskId(), text: '', completed: false, period };
+    setRoutines((current) => [...current, newRoutine]);
+    focusRoutineRow(newRoutine.id);
+    track('routine_added', { period });
+  };
+
+  const updateRoutineText = (routineId: string, text: string) => {
+    setRoutines((current) => current.map((routine) => (routine.id === routineId ? { ...routine, text } : routine)));
+  };
+
+  const toggleRoutine = (routine: RoutineTask) => {
+    setRoutines((current) =>
+      current.map((item) => (item.id === routine.id ? { ...item, completed: !item.completed } : item)),
+    );
+    if (!routine.completed) {
+      track('routine_completed');
+    }
+  };
+
+  const deleteRoutine = (routineId: string) => {
+    setRoutines((current) => current.filter((routine) => routine.id !== routineId));
+    track('routine_deleted');
+  };
+
+  const handleRoutineKeyDown = (
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+    routine: RoutineTask,
+  ) => {
+    const { selectionStart, selectionEnd, value } = event.currentTarget;
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+
+      // New line inherits the current routine's period so it lands in the same panel.
+      const nextRoutine: RoutineTask = {
+        id: makeDivideAndConquerTaskId(),
+        text: value.slice(selectionEnd),
+        completed: false,
+        period: routine.period,
+      };
+
+      setRoutines((current) => splitEditableRow(current, routine.id, value.slice(0, selectionStart), nextRoutine));
+      focusRoutineRow(nextRoutine.id, 0);
+      return;
+    }
+
+    if (event.key === 'Backspace' && selectionStart === 0 && selectionEnd === 0) {
+      // Merge into the previous routine *within the same panel* (period).
+      const samePeriod = routines.filter((item) => item.period === routine.period);
+      const positionInPanel = samePeriod.findIndex((item) => item.id === routine.id);
+
+      if (positionInPanel <= 0) {
+        return;
+      }
+
+      event.preventDefault();
+      const previous = samePeriod[positionInPanel - 1];
+
+      setRoutines((current) => mergeEditableRows(current, routine.id, previous.id));
+      focusRoutineRow(previous.id, previous.text.length);
+    }
+  };
+
+  const renderRoutineItem = (routine: RoutineTask, displayIndex: number, isEditing: boolean) => (
+    <div key={routine.id} className={`routine-item ${routine.completed ? 'completed' : ''}`}>
+      <button
+        type="button"
+        className="row-done-circle"
+        onClick={() => toggleRoutine(routine)}
+        aria-pressed={routine.completed}
+        aria-label={
+          routine.completed
+            ? `Mark ${routine.text || 'routine'} not done`
+            : `Mark ${routine.text || 'routine'} done`
+        }
+        title={routine.completed ? 'Mark not done' : 'Mark done'}
+      >
+        <Check className="row-done-circle-check" size={13} strokeWidth={2.5} aria-hidden="true" />
+      </button>
+      <textarea
+        className="routine-item-input"
+        data-routine-id={routine.id}
+        rows={1}
+        value={routine.text}
+        placeholder="New routine…"
+        readOnly={!isEditing}
+        tabIndex={isEditing ? undefined : -1}
+        onChange={(event) => {
+          updateRoutineText(routine.id, event.target.value);
+          autoSizeTextArea(event.target);
+        }}
+        onKeyDown={isEditing ? (event) => handleRoutineKeyDown(event, routine) : undefined}
+        aria-label={`${routine.period} routine ${displayIndex + 1}`}
+        spellCheck={isEditing}
+      />
+      {isEditing ? (
+        <button
+          type="button"
+          className="routine-item-delete text-action danger"
+          onClick={() => deleteRoutine(routine.id)}
+          aria-label="Delete routine"
+        >
+          Delete
+        </button>
+      ) : null}
+    </div>
+  );
+
+  const renderRoutinePanel = (period: RoutinePeriod, isEditing: boolean) => {
+    const items = routines.filter((routine) => routine.period === period);
+
+    return (
+      <div className={`routine-panel ${isEditing ? 'is-editing' : ''}`}>
+        {items.length > 0 ? (
+          <div className="routine-list">
+            {items.map((routine, index) => renderRoutineItem(routine, index, isEditing))}
+          </div>
+        ) : (
+          <p className="routine-empty">No routines yet</p>
+        )}
+        {isEditing ? (
+          <button type="button" className="routine-add-button" onClick={() => addRoutine(period)}>
+            <Plus size={16} aria-hidden="true" />
+            <span>{`Add ${period} routine`}</span>
+          </button>
+        ) : null}
+      </div>
+    );
+  };
+
   const closeConfirm = () => {
     setConfirmState(null);
   };
@@ -1925,19 +2296,40 @@ const App = () => {
 
     const { selectionStart, selectionEnd, value } = event.currentTarget;
 
+    // Arrow Up/Down cross into the adjacent task row when the caret is already on
+    // the first / last visual line (so wrapped rows still navigate internally first).
+    if (event.key === 'ArrowUp' && selectionStart === selectionEnd && rowIndex > 0) {
+      if (getCaretEdgeLines(event.currentTarget).onFirstLine) {
+        event.preventDefault();
+        const previousRow = currentRows[rowIndex - 1];
+        focusDivideAndConquerDraftRow(rowIndex - 1, Math.min(selectionStart, previousRow.text.length));
+      }
+      return;
+    }
+
+    if (
+      event.key === 'ArrowDown' &&
+      selectionStart === selectionEnd &&
+      rowIndex < currentRows.length - 1
+    ) {
+      if (getCaretEdgeLines(event.currentTarget).onLastLine) {
+        event.preventDefault();
+        const nextRow = currentRows[rowIndex + 1];
+        focusDivideAndConquerDraftRow(rowIndex + 1, Math.min(selectionStart, nextRow.text.length));
+      }
+      return;
+    }
+
     if (event.key === 'Enter') {
       event.preventDefault();
 
+      // A read-only row hands over its committed text when the DOM value is empty,
+      // so a split at the very end still produces the trailing empty row.
       const sourceText = value.length > 0 || currentRow.text.length === 0 ? value : currentRow.text;
       const splitStart = value.length > 0 ? selectionStart : sourceText.length;
       const splitEnd = value.length > 0 ? selectionEnd : sourceText.length;
       const nextRow = createDivideAndConquerDraftRow(sourceText.slice(splitEnd));
-      const nextRows = [
-        ...currentRows.slice(0, rowIndex),
-        { ...currentRow, text: sourceText.slice(0, splitStart) },
-        nextRow,
-        ...currentRows.slice(rowIndex + 1),
-      ];
+      const nextRows = splitEditableRow(currentRows, currentRow.id, sourceText.slice(0, splitStart), nextRow);
 
       commitDivideAndConquerDraftRows(nextRows, true);
       focusDivideAndConquerDraftRow(rowIndex + 1, 0);
@@ -1948,15 +2340,10 @@ const App = () => {
       event.preventDefault();
 
       const previousRow = currentRows[rowIndex - 1];
-      const nextCursorPosition = previousRow.text.length;
-      const nextRows = [
-        ...currentRows.slice(0, rowIndex - 1),
-        { ...previousRow, text: `${previousRow.text}${currentRow.text}` },
-        ...currentRows.slice(rowIndex + 1),
-      ];
+      const nextRows = mergeEditableRows(currentRows, currentRow.id, previousRow.id);
 
       commitDivideAndConquerDraftRows(nextRows, true);
-      focusDivideAndConquerDraftRow(rowIndex - 1, nextCursorPosition);
+      focusDivideAndConquerDraftRow(rowIndex - 1, previousRow.text.length);
       return;
     }
 
@@ -2466,6 +2853,21 @@ const App = () => {
 
   return (
     <div className="app-shell">
+      {showBanner && dailyQuote ? (
+        <TopBanner
+          ariaLabel="Quote of the day"
+          icon="✨"
+          onDismiss={() => {
+            window.localStorage.setItem(BANNER_DISMISS_STORAGE_KEY, getLocalDateString());
+            setBannerDismissedToday(true);
+          }}
+        >
+          <span className="banner-quote">
+            {dailyQuote.text}
+            {dailyQuote.author ? <span className="banner-quote-author"> — {dailyQuote.author}</span> : null}
+          </span>
+        </TopBanner>
+      ) : null}
       <main ref={workspaceRef} className="workspace">
         <section className="top-controls">
           {renderModeTabs()}
@@ -2579,6 +2981,23 @@ const App = () => {
                   </span>
                 ) : null}
               </>
+            ) : activeView === 'routines' ? (
+              persistenceFeedback !== 'idle' ? (
+                <span
+                  className={`save-feedback-indicator save-feedback-${persistenceFeedback}`}
+                  role="status"
+                  aria-live="polite"
+                  aria-label={persistenceFeedback === 'saved' ? 'Changes saved' : 'Saving changes'}
+                >
+                  {persistenceFeedback === 'saved' ? (
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                      <path d="m5 12 4.2 4.2L19 6.5" />
+                    </svg>
+                  ) : (
+                    <span className="loading-spinner" aria-hidden="true" />
+                  )}
+                </span>
+              ) : null
             ) : activeView === 'planner' ? (
               renderWorkTabs('planner')
             ) : activeView === 'sortBoard' ? (
@@ -2807,7 +3226,9 @@ const App = () => {
                       divideAndConquerBuckets.unassigned.map((task, index) =>
                         renderDivideAndConquerTaskCard(task, index)
                       )
-                    ) : null}
+                    ) : (
+                      <span className="sort-unassigned-empty">All tasks sorted.</span>
+                    )}
                   </div>
                 </div>
 
@@ -2970,6 +3391,36 @@ const App = () => {
                     </section>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
+        ) : activeView === 'routines' ? (
+          <section className="routines-page" aria-labelledby="routines-title">
+            <div className="routines-shell">
+              <header className="routines-heading">
+                <span aria-hidden="true" />
+                <h1 id="routines-title">Routines</h1>
+                <button
+                  type="button"
+                  className="routine-edit-toggle"
+                  onClick={() => setIsEditingRoutines((editing) => !editing)}
+                  aria-pressed={isEditingRoutines}
+                >
+                  {isEditingRoutines ? 'Done' : 'Edit'}
+                </button>
+              </header>
+              <SegmentedControl
+                className="segmented-routines"
+                ariaLabel="Routine period"
+                options={[
+                  { value: 'morning', label: 'Morning' },
+                  { value: 'evening', label: 'Evening' },
+                ]}
+                value={routinePeriod}
+                onChange={setRoutinePeriod}
+              />
+              <div className="routine-single" ref={routinesListRef}>
+                {renderRoutinePanel(routinePeriod, isEditingRoutines)}
               </div>
             </div>
           </section>
@@ -3155,7 +3606,7 @@ const App = () => {
               <colgroup>
                 <col className="checklist-section-column" />
                 <col className="checklist-label-column" />
-                {Array.from({ length: COLUMN_COUNT }, (_, index) => (
+                {Array.from({ length: visibleColumnCount }, (_, index) => (
                   <col key={index} className="checklist-day-column" />
                 ))}
               </colgroup>
@@ -3165,15 +3616,18 @@ const App = () => {
                   <th className="label-header">
                     <div className="sana-header">
                       <span>Sana:</span>
-                      <input
-                        type="month"
-                        aria-label="Select month"
-                        value={formatMonthValue(activeSheet.selectedYear, activeSheet.selectedMonth)}
-                        onChange={(event) => handleMonthChange(event.target.value)}
+                      <MonthPicker
+                        year={activeSheet.selectedYear}
+                        month={activeSheet.selectedMonth}
+                        currentYear={new Date().getFullYear()}
+                        currentMonth={new Date().getMonth()}
+                        onChange={(year, month) =>
+                          handleMonthChange(formatMonthValue(year, month))
+                        }
                       />
                     </div>
                   </th>
-                  {Array.from({ length: COLUMN_COUNT }, (_, index) => (
+                  {Array.from({ length: visibleColumnCount }, (_, index) => (
                     <th key={index} className="date-cell">
                       <input
                         type="text"
@@ -3197,6 +3651,7 @@ const App = () => {
                   <SectionBlock
                     key={section.id}
                     section={section}
+                    columnCount={visibleColumnCount}
                     onAddRow={(label) =>
                       updateSectionRows(section.id, (rows) => [...rows, { ...createRow(rows.length), label }])
                     }
@@ -3461,6 +3916,7 @@ const App = () => {
 
 interface SectionBlockProps {
   section: ChecklistSection;
+  columnCount: number;
   onAddRow: (label: string) => void;
   onDeleteRow: (rowId: string) => void;
   onRenameRow: (rowId: string, label: string) => void;
@@ -3476,6 +3932,7 @@ interface OpenCellMenu {
 
 const SectionBlock = ({
   section,
+  columnCount,
   onAddRow,
   onDeleteRow,
   onRenameRow,
@@ -3598,7 +4055,7 @@ const SectionBlock = ({
             </div>
           </td>
 
-          {Array.from({ length: COLUMN_COUNT }, (_, columnIndex) => {
+          {Array.from({ length: columnCount }, (_, columnIndex) => {
             const checkState = row.checksByColumn[columnIndex];
             const isDone = checkState?.mark === 'plus';
             const isUndone = checkState?.mark === 'minus';
@@ -3627,7 +4084,7 @@ const SectionBlock = ({
                   {isMenuOpen ? (
                     <div
                       className={`cell-mark-menu ${rowIndex < 2 ? 'cell-mark-menu-down' : ''} ${
-                        columnIndex >= COLUMN_COUNT - 2 ? 'cell-mark-menu-left' : ''
+                        columnIndex >= columnCount - 2 ? 'cell-mark-menu-left' : ''
                       }`}
                       role="menu"
                       aria-label="Cell mark options"
@@ -3682,7 +4139,7 @@ const SectionBlock = ({
             />
           </div>
         </td>
-        {Array.from({ length: COLUMN_COUNT }, (_, index) => (
+        {Array.from({ length: columnCount }, (_, index) => (
           <td key={index} className="add-row-filler" />
         ))}
       </tr>

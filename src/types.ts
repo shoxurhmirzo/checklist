@@ -63,6 +63,15 @@ export interface IdeaRecord {
   updatedAt?: string;
 }
 
+export type RoutinePeriod = 'morning' | 'evening';
+
+export interface RoutineTask {
+  id: string;
+  text: string;
+  completed: boolean;
+  period: RoutinePeriod;
+}
+
 export interface AppState {
   sheets: ChecklistSheet[];
   divideAndConquerText: string;
@@ -71,6 +80,7 @@ export interface AppState {
   dailyHistory: DailyHistoryRecord[];
   ideas: IdeaRecord[];
   ideaPlaces: string[];
+  routines: RoutineTask[];
   lastRolloverDate: string | null;
 }
 
@@ -86,5 +96,6 @@ export interface BackupPayload {
   dailyHistory?: DailyHistoryRecord[];
   ideas?: IdeaRecord[];
   ideaPlaces?: string[];
+  routines?: RoutineTask[];
   lastRolloverDate?: string | null;
 }

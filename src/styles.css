@@ -1,6 +1,6 @@
 :root {
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
-  --check-cell-size: 32px;
+  --check-cell-size: 36px;
 
   /* Apple design tokens (see APPLE_DESIGN_GUIDE.md) */
   --color-black: #1D1D1F;
@@ -14,8 +14,18 @@
   --color-blue-dark: #0056B3;
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
-  --transition-fast: 150ms ease-out;
-  --transition-base: 200ms ease-out;
+
+  /* Motion system (see docs/MOTION.md).
+     Duration is DERIVED, not picked: it scales with how far pixels travel and
+     the animation's function. Grounded in Apple HIG — Motion ("Aim for brevity
+     and precision in feedback animations") — and apple.com's measured standard
+     of ~320ms on cubic-bezier(0.4, 0, 0.6, 1), which is essentially ease-in-out. */
+  --ease-standard: cubic-bezier(0.4, 0, 0.6, 1); /* in-place state change (Apple's web curve) */
+  --ease-entrance: cubic-bezier(0, 0, 0.2, 1);   /* things appearing: decelerate to rest */
+  --dur-instant: 100ms;  /* tactile press — active/pressed, no travel */
+  --dur-micro: 150ms;    /* frequent hover feedback — color, opacity, border, small shadow */
+  --dur-standard: 300ms; /* visible state change with travel — tab thumb, reveal, menu in */
+  --dur-large: 440ms;    /* spatial entrance — dialog, backdrop, fullscreen */
 
   color: #1D1D1F;
   background: #FFFFFF;
@@ -68,10 +78,10 @@ textarea {
 button {
   cursor: pointer;
   transition:
-    background-color 150ms ease-out,
-    border-color 150ms ease-out,
-    box-shadow 150ms ease-out,
-    color 150ms ease-out;
+    background-color var(--dur-micro) var(--ease-standard),
+    border-color var(--dur-micro) var(--ease-standard),
+    box-shadow var(--dur-micro) var(--ease-standard),
+    color var(--dur-micro) var(--ease-standard);
 }
 
 #root {
@@ -120,15 +130,19 @@ button {
   top: 3px;
   bottom: 3px;
   left: 3px;
-  width: calc(50% - 3px);
+  width: calc(33.333% - 2px);
   border-radius: 11px;
   background: #fff;
   box-shadow: 0 1px 5px rgba(22, 22, 22, 0.18);
-  transition: transform 200ms ease-out;
+  transition: transform var(--dur-standard) var(--ease-standard);
 }
 
-.mode-tabs.work-active .mode-tabs-thumb {
+.mode-tabs[data-mode="routines"] .mode-tabs-thumb {
   transform: translateX(100%);
+}
+
+.mode-tabs[data-mode="work"] .mode-tabs-thumb {
+  transform: translateX(200%);
 }
 
 .top-controls .mode-tab {
@@ -142,7 +156,7 @@ button {
   color: #6E6E73;
   font-size: 1.05rem;
   line-height: 1.15;
-  transition: color 150ms ease-out;
+  transition: color var(--dur-micro) var(--ease-standard);
 }
 
 .top-controls .mode-tab:hover {
@@ -177,12 +191,12 @@ button {
   height: 1.9rem;
   padding: 0 0.85rem;
   border: 0;
-  border-radius: 999px;
+  border-radius: 8px;
   background: #E8E8ED;
   color: #6E6E73;
   font-size: 0.95rem;
   text-decoration: none;
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
 }
 
 .top-controls .page-nav-link:hover,
@@ -206,7 +220,7 @@ button {
   height: 1.9rem !important;
   padding: 0 2.5rem 0 2.5rem !important;
   border: 0 !important;
-  border-radius: 999px !important;
+  border-radius: 8px !important;
   background-color: #E8E8ED !important;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath fill='%23111' d='M1 1.5l6 6 6-6' stroke='%23111' stroke-width='1.2' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E") !important;
   background-repeat: no-repeat !important;
@@ -244,45 +258,54 @@ button {
   padding: 0.5rem;
 }
 
-.sheet-menu-item {
+/* Scoped under .sheet-menu so these win over the broad `.top-controls button`
+   rules (which otherwise add a 1px border, an inset shadow, and a heavier
+   #F5F5F7 hover fill) — this makes the hover identical to a calendar cell. */
+.sheet-menu .sheet-menu-item {
   display: block;
   width: 100%;
   text-align: left;
-  padding: 0;
-  border: none !important;
-  border-radius: 0;
+  /* Padding + radius so the hover fill reads like a calendar cell. */
+  padding: 0.4rem 0.5rem;
+  border: none;
+  border-radius: 8px;
   background: transparent;
+  box-shadow: none;
   color: #0071E3;
   font-size: 0.95rem;
   font-weight: 400;
   cursor: pointer;
-  transition: color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard),
+    color var(--dur-micro) var(--ease-standard);
   overflow: visible;
 }
 
-.sheet-menu-item:hover,
-.sheet-menu-item:focus-visible {
-  background: transparent;
-  color: #0056B3;
+/* Match the month-picker cell hover exactly: subtle neutral fill, no border/shadow. */
+.sheet-menu .sheet-menu-item:hover,
+.sheet-menu .sheet-menu-item:focus-visible {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: transparent;
+  box-shadow: none;
   outline: none;
 }
 
-.sheet-menu-item:active {
-  background: transparent;
+.sheet-menu .sheet-menu-item:active {
+  background: rgba(0, 0, 0, 0.06);
+  box-shadow: none;
 }
 
-.sheet-menu-item svg {
+.sheet-menu .sheet-menu-item svg {
   display: none;
 }
 
-/* Compound selector so the broad .top-controls button color can't win. */
-.sheet-menu-item.sheet-menu-item-danger {
+.sheet-menu .sheet-menu-item.sheet-menu-item-danger {
   color: #FF3B30;
 }
 
-.sheet-menu-item.sheet-menu-item-danger:hover,
-.sheet-menu-item.sheet-menu-item-danger:focus-visible {
-  background: rgba(215, 0, 21, 0.08);
+.sheet-menu .sheet-menu-item.sheet-menu-item-danger:hover,
+.sheet-menu .sheet-menu-item.sheet-menu-item-danger:focus-visible {
+  background: rgba(0, 0, 0, 0.04);
+  box-shadow: none;
   color: #FF3B30;
 }
 
@@ -446,7 +469,7 @@ button {
   color: #1D1D1F;
   padding: 0 0.5rem;
   font-size: 0.9rem;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .sheet-rename-inline input:focus {
@@ -651,7 +674,7 @@ button:focus-visible {
   height: 44px;
   border-radius: 2px;
   background: #D2D2D7;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
 }
 
 .dq-split-divider:hover .dq-split-divider-grip,
@@ -851,7 +874,7 @@ button:focus-visible {
   padding: 0.35rem 0.5rem;
   border-radius: 8px;
   margin-bottom: 0.5rem;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
   background: #fff;
 }
 
@@ -884,7 +907,7 @@ button:focus-visible {
   padding: 0.6rem 1rem;
   overflow: hidden;
   resize: none;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .dq-task-input:focus {
@@ -924,7 +947,7 @@ button:focus-visible {
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
 }
 
 .sort-out-button:hover:not(:disabled) {
@@ -1018,7 +1041,7 @@ button:focus-visible {
   background: transparent;
   line-height: 1.4;
   text-align: left;
-  transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard), box-shadow var(--dur-micro) var(--ease-standard);
 }
 
 .sort-focus-line.drop-ready {
@@ -1052,12 +1075,12 @@ button:focus-visible {
   color: #0071E3;
   padding: 0;
   cursor: pointer;
-  transition: border-color 150ms ease-out, background-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard), background-color var(--dur-micro) var(--ease-standard);
 }
 
 .row-done-circle .row-done-circle-check {
   opacity: 0;
-  transition: opacity 120ms ease-out;
+  transition: opacity var(--dur-micro) var(--ease-standard);
 }
 
 .row-done-circle:hover,
@@ -1166,14 +1189,14 @@ button:focus-visible {
   background: linear-gradient(to right, rgba(245, 245, 247, 0), #F5F5F7 1.5rem);
   border-radius: 0 12px 12px 0;
   opacity: 0;
-  pointer-events: none;
-  transition: opacity 150ms ease-out;
+  /* auto (not none) so the action zone itself is hoverable while hidden. */
+  pointer-events: auto;
+  transition: opacity var(--dur-micro) var(--ease-standard);
 }
 
-.sort-focus-item:hover .sort-focus-actions,
-.sort-focus-item:focus-within .sort-focus-actions {
+.sort-focus-actions:hover,
+.sort-focus-actions:focus-within {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .sort-focus-item.dragging .sort-focus-actions {
@@ -1252,8 +1275,24 @@ button:focus-visible {
   flex-direction: column;
   gap: 0.65rem;
   padding: 0.25rem 0 0.5rem;
-  min-height: 0;
+  /* Grow to fill the Tasks card so the drop target stays large even when the
+     list is empty — otherwise it collapses to its padding and the last card
+     has nowhere to land. */
+  flex: 1 1 auto;
+  min-height: 6rem;
   overflow: auto;
+}
+
+.sort-unassigned-empty {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  color: #A1A1A6;
+  font-size: 0.9375rem;
+  text-align: center;
+  pointer-events: none;
 }
 
 /* The task list mirrors Plan Your Day: numbered, roomy rows. Quadrant
@@ -1339,7 +1378,7 @@ button:focus-visible {
   margin-top: 0.4rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   transition:
-    box-shadow 200ms ease-out;
+    box-shadow var(--dur-micro) var(--ease-standard);
 }
 
 .sort-completion-zone.magnetic {
@@ -1666,10 +1705,10 @@ button:focus-visible {
   pointer-events: none;
   backdrop-filter: blur(8px);
   transition:
-    opacity 200ms ease-out,
-    transform 200ms ease-out,
-    background-color 150ms ease-out,
-    box-shadow 150ms ease-out;
+    opacity var(--dur-standard) var(--ease-entrance),
+    transform var(--dur-standard) var(--ease-entrance),
+    background-color var(--dur-micro) var(--ease-standard),
+    box-shadow var(--dur-micro) var(--ease-standard);
 }
 
 .sort-cell-scroll-indicator.visible {
@@ -1726,8 +1765,8 @@ button:focus-visible {
   position: relative;
   z-index: 1;
   transition:
-    background-color 150ms ease-out,
-    box-shadow 150ms ease-out;
+    background-color var(--dur-micro) var(--ease-standard),
+    box-shadow var(--dur-micro) var(--ease-standard);
 }
 
 .sort-task-card.dragging {
@@ -1818,14 +1857,14 @@ button:focus-visible {
   background: linear-gradient(to right, rgba(255, 255, 255, 0), #fff 1.5rem);
   border-radius: 0 10px 10px 0;
   opacity: 0;
-  pointer-events: none;
-  transition: opacity 150ms ease-out;
+  /* auto (not none) so the action zone itself is hoverable while hidden. */
+  pointer-events: auto;
+  transition: opacity var(--dur-micro) var(--ease-standard);
 }
 
-.sort-task-card:hover .sort-task-card-actions,
-.sort-task-card:focus-within .sort-task-card-actions {
+.sort-task-card-actions:hover,
+.sort-task-card-actions:focus-within {
   opacity: 1;
-  pointer-events: auto;
 }
 
 .sort-task-card.dragging .sort-task-card-actions,
@@ -1881,7 +1920,7 @@ button:focus-visible {
   line-height: 1.2;
   outline: 0;
   cursor: text;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .sort-task-card-input:focus {
@@ -2106,7 +2145,7 @@ table {
 
 th,
 td {
-  border: 2px solid #1D1D1F;
+  border: 1px solid #D1D1D6;
 }
 
 thead th {
@@ -2134,26 +2173,166 @@ thead th {
   width: 100%;
 }
 
-.sana-header input {
-  width: 130px;
+.month-picker {
+  position: relative;
+  display: inline-flex;
+}
+
+.month-picker-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   min-width: 130px;
+  justify-content: space-between;
   border: 1px solid #D2D2D7;
   border-radius: 12px;
   background: #fff;
   color: #1D1D1F;
   padding: 0.35rem 0.6rem;
   font-size: 0.95rem;
-  transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color var(--dur-micro) var(--ease-standard), box-shadow var(--dur-micro) var(--ease-standard);
 }
 
-.sana-header input:hover {
+.month-picker-trigger:hover {
   border-color: #A1A1A6;
 }
 
-.sana-header input:focus {
+.month-picker-trigger.is-open {
   border-color: #0071E3;
-  outline: none;
   box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.1);
+}
+
+.month-picker-trigger svg {
+  color: #86868B;
+  transition: transform var(--dur-micro) var(--ease-standard);
+}
+
+.month-picker-trigger.is-open svg {
+  transform: rotate(180deg);
+}
+
+.month-picker-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: 236px;
+  padding: 0.45rem;
+  /* Frosted material, not flat white — softens the "too bright / high contrast" feel. */
+  background: rgba(250, 250, 252, 0.82);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.12);
+  animation: month-picker-in 150ms var(--ease-standard) both;
+}
+
+@keyframes month-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.month-picker-year {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+.month-picker-year-label {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1D1D1F;
+  font-variant-numeric: tabular-nums;
+}
+
+.month-picker-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #1D1D1F;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-standard);
+}
+
+.month-picker-nav:hover {
+  background: #F5F5F7;
+}
+
+.month-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.25rem;
+}
+
+.month-picker-cell {
+  padding: 0.4rem 0.25rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  /* Softer than pure black — lowers the harsh text-on-white contrast. */
+  color: #3A3A3C;
+  font-size: 0.9rem;
+  font-weight: 400;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
+}
+
+.month-picker-cell:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Today's month, when not the selected one — a subtle blue hint. */
+.month-picker-cell.is-current {
+  color: #0071E3;
+}
+
+.month-picker-cell.is-selected {
+  background: #0071E3;
+  color: #fff;
+  font-weight: 600;
+}
+
+.month-picker-cell.is-selected:hover {
+  background: #0077ED;
+}
+
+.month-picker-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid #F0F0F2;
+}
+
+.month-picker-today {
+  border: 0;
+  background: transparent;
+  color: #0071E3;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0.2rem 0.5rem;
+  border-radius: 8px;
+  transition: background-color var(--dur-micro) var(--ease-standard);
+}
+
+.month-picker-today:hover {
+  background: #F5F5F7;
 }
 
 .date-cell {
@@ -2162,15 +2341,14 @@ thead th {
 
 .date-cell input {
   width: 100%;
-  min-height: 84px;
+  min-height: 44px;
   border: 0;
   padding: 0.15rem;
   text-align: center;
-  writing-mode: vertical-rl;
-  text-orientation: mixed;
-  transform: rotate(180deg);
-  font-size: 0.85rem;
-  font-weight: 400;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1D1D1F;
+  font-variant-numeric: tabular-nums;
 }
 
 .vertical-section {
@@ -2198,34 +2376,41 @@ thead th {
 }
 
 .row-label-wrap {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.25rem;
   padding: 0.1rem 0.2rem;
 }
 
 .row-label-wrap input {
   width: 100%;
   border: 0;
-  min-height: 28px;
+  min-height: 30px;
   background: transparent;
-  padding: 0.15rem;
-  font-size: 0.92rem;
+  padding: 0.15rem 1.4rem 0.15rem 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: #1D1D1F;
 }
 
 .row-delete-button {
+  position: absolute;
+  right: 0.25rem;
+  top: 50%;
+  transform: translateY(-50%);
   border: 0;
-  background: #fff;
-  color: #1D1D1F;
+  background: transparent;
+  color: #FF3B30;
   padding: 0 0.3rem;
-  font-size: 1rem;
+  font-size: 1.05rem;
   line-height: 1;
+  opacity: 0;
+  transition: opacity var(--dur-micro) var(--ease-standard);
 }
 
-.row-delete-button:hover {
-  background: #fbefef;
-  color: #1D1D1F;
+.row-delete-button:hover,
+.row-delete-button:focus-visible {
+  opacity: 1;
 }
 
 .checkbox-cell {
@@ -2314,7 +2499,7 @@ thead th {
   overflow: hidden;
   background: #fff;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-  animation: cell-mark-menu-in 150ms ease-out both;
+  animation: cell-mark-menu-in var(--dur-standard) var(--ease-entrance) both;
 }
 
 .cell-mark-menu-down {
@@ -2407,7 +2592,7 @@ thead th {
   padding: 0.6rem 1.25rem;
   font-size: 1rem;
   font-weight: 500;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
   cursor: pointer;
 }
 
@@ -2427,7 +2612,7 @@ thead th {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-  animation: backdrop-fade-in 150ms ease-out;
+  animation: backdrop-fade-in var(--dur-large) var(--ease-entrance);
 }
 
 @keyframes backdrop-fade-in {
@@ -2441,7 +2626,7 @@ thead th {
 }
 
 .confirm-dialog {
-  animation: dialog-pop-in 160ms ease-out;
+  animation: dialog-pop-in var(--dur-large) var(--ease-entrance);
 }
 
 @keyframes dialog-pop-in {
@@ -2471,7 +2656,7 @@ thead th {
   color: #6E6E73;
   font-size: 1.1rem;
   line-height: 1;
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
   cursor: pointer;
   padding: 0;
   z-index: 10;
@@ -2529,7 +2714,7 @@ thead th {
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
 }
 
 .confirm-delete-button:hover {
@@ -2652,24 +2837,11 @@ thead th {
   letter-spacing: 0.06em;
 }
 
-.history-column.completed h3 {
-  color: #6E6E73;
-}
-
-.history-column.undone h3 {
-  color: #6E6E73;
-}
-
 .history-column-count {
   font-weight: 400;
   color: #A1A1A6;
   font-size: 0.8125rem;
   margin-left: 0.5rem;
-}
-
-.history-column-count::before {
-  content: '·';
-  margin-right: 0.5rem;
 }
 
 .history-task-list {
@@ -2693,7 +2865,7 @@ thead th {
   font-size: 0.9375rem;
   color: #1D1D1F;
   overflow-wrap: anywhere;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
 }
 
 .history-task:last-child {
@@ -2704,8 +2876,13 @@ thead th {
   background: transparent;
 }
 
-.history-task:hover .history-edit-button,
-.history-task:hover .history-complete-button,
+/* Reveal only when the pointer is over the actions zone (not the whole row) —
+   matching the routine list. Keyboard focus reveals too. Save/Cancel stay
+   visible for the duration of an edit. */
+.history-task-actions:hover .history-edit-button,
+.history-task-actions:hover .history-complete-button,
+.history-edit-button:focus-visible,
+.history-complete-button:focus-visible,
 .history-task:has(.history-task-edit-input) .history-save-button,
 .history-task:has(.history-task-edit-input) .history-cancel-button {
   opacity: 1;
@@ -2737,7 +2914,7 @@ thead th {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 150ms ease-out, color 150ms ease-out, opacity 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard), opacity var(--dur-micro) var(--ease-standard);
   opacity: 0;
 }
 
@@ -2765,7 +2942,7 @@ thead th {
   padding: 0.5rem 0.6rem;
   font-size: 0.9375rem;
   font-family: inherit;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .history-task-edit-input:focus {
@@ -2784,7 +2961,7 @@ thead th {
   font-weight: 500;
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color 150ms ease-out, opacity 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard), opacity var(--dur-micro) var(--ease-standard);
   opacity: 0;
 }
 
@@ -2792,14 +2969,34 @@ thead th {
   background: #F0F4FF;
 }
 
-.history-column.completed .history-task {
-  border-color: #E8E8ED;
-  background: transparent;
+/* No icons: the two groups read as subtle tinted areas — a green field for done,
+   a red field for not-done (traffic-light semantics, kept faint so it reads as a
+   soft rose, not an alarm). The uppercase header label carries the meaning for
+   screen readers (never color alone). */
+.history-column .history-task-list {
+  padding: 0.1rem 0.85rem;
+  border-left: 3px solid #C7C7CC; /* neutral fallback */
+  border-radius: 0 8px 8px 0;
 }
 
-.history-column.undone .history-task {
-  border-color: #E8E8ED;
-  background: transparent;
+.history-column.completed .history-task-list {
+  border-left-color: rgba(52, 199, 89, 0.55); /* Apple system green — done, softened */
+  background: rgba(52, 199, 89, 0.06);
+}
+
+.history-column.undone .history-task-list {
+  border-left-color: rgba(255, 59, 48, 0.5); /* Apple system red — not done, softened */
+  background: rgba(255, 59, 48, 0.05);
+}
+
+/* A finished task recedes to secondary text; a missed one keeps full-strength
+   text so it stands out against the calmer green field. */
+.history-column.completed .history-task-text {
+  color: #6E6E73;
+}
+
+.history-column.undone .history-task-text {
+  color: #1D1D1F;
 }
 
 .history-column-empty {
@@ -3010,7 +3207,7 @@ thead th {
   font-weight: 400;
   resize: none;
   overflow: hidden;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .idea-input::placeholder {
@@ -3033,8 +3230,8 @@ thead th {
   font-size: 1rem;
   font-weight: 500;
   transition:
-    background-color 150ms ease-out,
-    transform 90ms ease;
+    background-color var(--dur-micro) var(--ease-standard),
+    transform var(--dur-instant) var(--ease-standard);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -3074,7 +3271,7 @@ thead th {
   margin-bottom: 0.75rem;
   background: #F5F5F7;
   border-radius: 12px;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
 }
 
 .idea-meta {
@@ -3132,7 +3329,7 @@ thead th {
   font-weight: 500;
   resize: none;
   overflow: hidden;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .idea-edit-input:focus-visible {
@@ -3171,11 +3368,11 @@ thead th {
   line-height: 1.2;
   padding: 0;
   opacity: 0;
-  transition: opacity 150ms ease-out, color 150ms ease-out;
+  transition: opacity var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
   cursor: pointer;
 }
 
-.idea-item:hover .idea-delete,
+.idea-delete:hover,
 .idea-delete:focus-visible {
   opacity: 1;
 }
@@ -3265,7 +3462,7 @@ thead th {
   line-height: 1;
   padding: 0.35rem 0.75rem;
   cursor: pointer;
-  transition: color 150ms ease-out, background-color 150ms ease-out;
+  transition: color var(--dur-micro) var(--ease-standard), background-color var(--dur-micro) var(--ease-standard);
 }
 
 .place-edit-button:hover {
@@ -3284,7 +3481,7 @@ thead th {
   margin-bottom: 0.5rem;
   background: #F5F5F7;
   border-radius: 10px;
-  transition: background-color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard);
 }
 
 .place-edit-row:focus-within {
@@ -3303,7 +3500,7 @@ thead th {
   padding: 0;
   font-size: 1rem;
   font-weight: 500;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .place-edit-input:focus-visible {
@@ -3321,7 +3518,7 @@ thead th {
   color: #A1A1A6;
   font-size: 1.1rem;
   line-height: 1;
-  transition: background-color 150ms ease-out, color 150ms ease-out;
+  transition: background-color var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3352,7 +3549,7 @@ thead th {
   color: #1D1D1F;
   padding: 0.75rem 1rem;
   font-size: 1rem;
-  transition: border-color 150ms ease-out;
+  transition: border-color var(--dur-micro) var(--ease-standard);
 }
 
 .place-add-input::placeholder {
@@ -3380,7 +3577,7 @@ thead th {
 /* The add-place affordance stays quiet until the row is hovered. */
 .idea-place.is-empty {
   opacity: 0;
-  transition: opacity 150ms ease-out;
+  transition: opacity var(--dur-micro) var(--ease-standard);
 }
 
 .idea-item:hover .idea-place.is-empty,
@@ -3391,6 +3588,422 @@ thead th {
 @media (hover: none) {
   .idea-place.is-empty {
     opacity: 1;
+  }
+}
+
+/* Routines — a minimalist Apple Notes / Bear-style daily checklist. */
+.routines-page {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  padding: 1.25rem 0 2rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.routines-shell {
+  width: min(560px, calc(100vw - 2rem));
+}
+
+.routines-heading {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  margin: 0 0 1rem;
+}
+
+/* Right-aligned Edit/Done toggle; the left spacer keeps the title centred. */
+.routine-edit-toggle {
+  justify-self: end;
+  border: 0;
+  background: transparent;
+  color: #0071E3;
+  font-size: 1rem;
+  font-weight: 500;
+  padding: 0.3rem 0.4rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-standard);
+}
+
+.routine-edit-toggle:hover,
+.routine-edit-toggle:focus-visible {
+  background: #F5F5F7;
+}
+
+.routine-edit-toggle[aria-pressed='true'] {
+  font-weight: 600;
+}
+
+.routine-empty {
+  margin: 0;
+  padding: 0.4rem 0.2rem;
+  color: #A1A1A6;
+  font-size: 0.95rem;
+}
+
+/* iOS segmented control — same family as the top tab bar, but subordinate:
+   smaller and centered so the hierarchy stays clear (top tabs > this).
+   Thumb width/position come from inline styles so it scales to any segment count. */
+.segmented {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: min(300px, 100%);
+  height: 2.1rem;
+  margin: 0 auto;
+  padding: 2px;
+  border-radius: 10px;
+  background: #E8E8ED;
+}
+
+.segmented-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  border-radius: 8px;
+  background: #FFFFFF;
+  box-shadow: 0 1px 4px rgba(22, 22, 22, 0.16);
+  transition: transform var(--dur-standard) var(--ease-standard);
+}
+
+/* Under the "Routines" title. */
+.segmented-routines {
+  margin-bottom: 1.25rem;
+}
+
+/* Work sub-pages — 4 segments, so a bit wider. */
+.segmented-work {
+  width: min(460px, calc(100vw - 2rem));
+}
+
+/* Two classes so this wins over the broad `.top-controls button` rule, which
+   would otherwise give each segment its own border ("pill inside a pill"). */
+.segmented .segmented-option {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 0;
+  height: calc(2.1rem - 4px);
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+  color: #6E6E73;
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color var(--dur-micro) var(--ease-standard);
+}
+
+.segmented .segmented-option:hover {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: #1D1D1F;
+}
+
+.segmented .segmented-option.active {
+  color: #1D1D1F;
+}
+
+.routines-heading h1 {
+  margin: 0;
+  color: #1D1D1F;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', sans-serif;
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.routine-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+/* Card per period — matches the Work panels (.sort-tasks-shell). */
+.routine-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border: 1px solid #E8E8ED;
+  border-radius: 16px;
+  background: #FFFFFF;
+  padding: 1.5rem 1.25rem;
+}
+
+.routine-panel-title {
+  margin: 0 0 0.6rem 0;
+  padding: 0;
+  color: #6E6E73;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.routine-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.routine-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 10px;
+  transition: background-color var(--dur-micro) var(--ease-standard);
+}
+
+.routine-item:hover,
+.routine-item:focus-within {
+  background: #F5F5F7;
+}
+
+/* Reuse .row-done-circle, nudged to sit with the first line of text. */
+.routine-item .row-done-circle {
+  margin-top: 0.15rem;
+}
+
+/* Checked state: fill the circle and keep the check visible. */
+.routine-item.completed .row-done-circle {
+  background: #0071E3;
+  border-color: #0071E3;
+  color: #fff;
+}
+
+.routine-item.completed .row-done-circle .row-done-circle-check {
+  opacity: 1;
+}
+
+.routine-item-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: #1D1D1F;
+  padding: 0.15rem 0;
+  font: inherit;
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  letter-spacing: -0.022em;
+  outline: 0;
+  resize: none;
+  overflow: hidden;
+  transition: color var(--dur-micro) var(--ease-standard);
+}
+
+.routine-item-input:focus {
+  outline: 0;
+}
+
+.routine-item-input::placeholder {
+  color: #A1A1A6;
+  opacity: 1;
+}
+
+/* The "cross out" — struck through and faded once completed. */
+.routine-item.completed .routine-item-input {
+  color: #A1A1A6;
+  text-decoration: line-through;
+}
+
+/* Delete stays out of the way until you hover or focus the row. */
+.routine-item-delete {
+  flex: 0 0 auto;
+  align-self: center;
+  border: none;
+  background: none;
+  padding: 0;
+  color: #FF3B30;
+  font-size: 0.85rem;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-micro) var(--ease-standard), color var(--dur-micro) var(--ease-standard);
+}
+
+/* Reveal only when the pointer is over the button's own zone (its box still
+   receives hover at opacity 0), or when reached via keyboard. */
+.routine-item-delete:hover,
+.routine-item-delete:focus-visible {
+  opacity: 1;
+}
+
+.routine-item-delete:hover {
+  color: #D70015;
+}
+
+/* In edit mode every routine's Delete is visible (standard edit-mode pattern),
+   not hover-gated. */
+.routine-panel.is-editing .routine-item-delete {
+  opacity: 1;
+}
+
+.routine-add-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #0071E3;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) var(--ease-standard), opacity var(--dur-micro) var(--ease-standard);
+}
+
+.routine-add-button:hover,
+.routine-add-button:focus-visible {
+  background: #F5F5F7;
+}
+
+@media (max-width: 620px) {
+  .routines-page {
+    padding-top: 0.75rem;
+  }
+
+  .routines-shell {
+    width: min(100%, calc(100vw - 1rem));
+  }
+
+  /* Narrow screens: stack the two period panels. */
+  .routine-columns {
+    grid-template-columns: 1fr;
+  }
+
+  /* Touch devices can't hover — keep delete reachable. */
+  .routine-item-delete {
+    opacity: 1;
+  }
+}
+
+/* Reusable top banner — Apple-style announcement bar (see TopBanner.tsx).
+   In normal flow so it reserves its own height and pushes page content down,
+   regardless of how long the content wraps — no overlap, no magic offsets. */
+.top-banner {
+  position: relative;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding: 12px 16px 0;
+}
+
+.top-banner-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 1200px;
+  min-height: 60px;
+  /* Symmetric side padding keeps the centered text optically centered while the
+     right side clears the chevron + dismiss controls. */
+  padding: 10px 80px;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', sans-serif;
+  color: #1D1D1F;
+}
+
+.top-banner-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 1.0625rem;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* Collapsed: a single line, truncated with an ellipsis. */
+.top-banner-content.clamped {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.top-banner-dismiss,
+.top-banner-toggle {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: #86868B;
+  cursor: pointer;
+  /* Not a popup — a plain clickable glyph, no button chrome or round hover. */
+  transition: color var(--dur-micro) var(--ease-standard);
+}
+
+/* Inline, just before the text, so it reads as one centered group. */
+.top-banner-icon {
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+  font-size: 1.3rem;
+  line-height: 1;
+  color: #86868B;
+  /* Nudge up to sit on the text's optical center. */
+  transform: translateY(-1px);
+}
+
+.top-banner-dismiss {
+  right: 16px;
+}
+
+.top-banner-toggle {
+  right: 50px;
+}
+
+.top-banner-dismiss:hover,
+.top-banner-dismiss:focus-visible,
+.top-banner-toggle:hover,
+.top-banner-toggle:focus-visible {
+  color: #1D1D1F;
+}
+
+.top-banner-chevron {
+  transition: transform var(--dur-standard) var(--ease-standard);
+}
+
+.top-banner-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+/* Daily quote content — the app's ordinary SF sans, softly faded so it reads as
+   a calm aside rather than a headline. */
+.banner-quote {
+  color: #6E6E73;
+}
+
+.banner-quote-author {
+  color: #A1A1A6;
+}
+
+@media (max-width: 620px) {
+  .top-banner {
+    padding: 8px 8px 0;
+  }
+
+  .top-banner-inner {
+    padding: 8px 72px;
   }
 }
 

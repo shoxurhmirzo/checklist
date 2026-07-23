@@ -1,4 +1,4 @@
-import { COLUMN_COUNT, createSheet, generateColumnLabelsForMonth } from './defaults';
+import { COLUMN_COUNT, createSheet, generateColumnLabelsForMonth, normalizeColumnLabel } from './defaults';
 import type {
   AppState,
   BackupPayload,
@@ -9,19 +9,21 @@ import type {
   DivideAndConquerBucket,
   DivideAndConquerTask,
   IdeaRecord,
+  RoutineTask,
 } from './types';
 
 const DB_NAME = 'online-checklist-db';
 const STORE_NAME = 'app-state';
 const LEGACY_SHEETS_STORE_KEY = 'sheets';
 const APP_STATE_STORE_KEY = 'state';
-const BACKUP_VERSION = 9;
-const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, 7, 8, BACKUP_VERSION];
+const BACKUP_VERSION = 10;
+const SUPPORTED_BACKUP_VERSIONS = [1, 2, 4, 5, 6, 7, 8, 9, BACKUP_VERSION];
 
 export const MAX_CURRENT_FOCUS_TASKS = 2;
 
 export const DEFAULT_DIVIDE_AND_CONQUER_TEXT = '1.        ';
 export const DEFAULT_DIVIDE_AND_CONQUER_ITEMS: DivideAndConquerTask[] = [];
+export const DEFAULT_ROUTINES: RoutineTask[] = [];
 
 const DIVIDE_AND_CONQUER_BUCKETS: DivideAndConquerBucket[] = [
   'unassigned',
@@ -87,7 +89,7 @@ export const normalizeSheets = (sheets: ChecklistSheet[]): ChecklistSheet[] =>
         : new Date(sheet.createdAt || Date.now()).getMonth(),
     columnLabels:
       Array.isArray(sheet.columnLabels) && hasUsefulColumnLabels(sheet.columnLabels)
-        ? sheet.columnLabels
+        ? sheet.columnLabels.map(normalizeColumnLabel)
         : generateColumnLabelsForMonth(
             typeof sheet.selectedYear === 'number' && Number.isInteger(sheet.selectedYear)
               ? sheet.selectedYear
@@ -249,6 +251,29 @@ export const normalizeIdeaPlaces = (value: unknown): string[] => {
     .filter((place, index, places) => place.length > 0 && places.indexOf(place) === index);
 };
 
+export const normalizeRoutines = (value: unknown): RoutineTask[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter(
+      (routine): routine is RoutineTask =>
+        typeof routine === 'object' &&
+        routine !== null &&
+        typeof (routine as RoutineTask).id === 'string' &&
+        typeof (routine as RoutineTask).text === 'string',
+    )
+    .map((routine): RoutineTask => ({
+      id: routine.id,
+      text: routine.text,
+      completed: routine.completed === true,
+      // Legacy routines predate the morning/evening split — default them to morning.
+      period: (routine as RoutineTask).period === 'evening' ? 'evening' : 'morning',
+    }))
+    .filter((routine, index, all) => all.findIndex((other) => other.id === routine.id) === index);
+};
+
 export const normalizeLastRolloverDate = (value: unknown): string | null =>
   typeof value === 'string' && LOCAL_DATE_PATTERN.test(value) ? value : null;
 
@@ -272,6 +297,7 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
       dailyHistory: [],
       ideas: [],
       ideaPlaces: [],
+      routines: DEFAULT_ROUTINES,
       lastRolloverDate: null,
     };
   }
@@ -299,6 +325,7 @@ const normalizeAppStateUnsafe = (value: unknown): AppState | null => {
     dailyHistory: normalizeDailyHistory(state.dailyHistory),
     ideas: normalizeIdeas(state.ideas),
     ideaPlaces: normalizeIdeaPlaces(state.ideaPlaces),
+    routines: normalizeRoutines(state.routines),
     lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
   };
 };
@@ -311,6 +338,7 @@ const createDefaultAppState = (): AppState => ({
   dailyHistory: [],
   ideas: [],
   ideaPlaces: [],
+  routines: DEFAULT_ROUTINES,
   lastRolloverDate: null,
 });
 
@@ -399,6 +427,7 @@ export const saveAppState = async (state: AppState): Promise<void> =>
       dailyHistory: normalizeDailyHistory(state.dailyHistory),
       ideas: normalizeIdeas(state.ideas),
       ideaPlaces: normalizeIdeaPlaces(state.ideaPlaces),
+      routines: normalizeRoutines(state.routines),
       lastRolloverDate: normalizeLastRolloverDate(state.lastRolloverDate),
     };
     const request = store.put(normalizedState, APP_STATE_STORE_KEY);
@@ -417,6 +446,7 @@ export const createBackupPayload = (state: AppState): BackupPayload => ({
   dailyHistory: state.dailyHistory,
   ideas: state.ideas,
   ideaPlaces: state.ideaPlaces,
+  routines: state.routines,
   lastRolloverDate: state.lastRolloverDate,
 });
 
@@ -492,6 +522,15 @@ export const isValidBackupPayload = (value: unknown): value is BackupPayload => 
         ))) &&
     (payload.ideaPlaces === undefined ||
       (Array.isArray(payload.ideaPlaces) && payload.ideaPlaces.every((place) => typeof place === 'string'))) &&
+    (payload.routines === undefined ||
+      (Array.isArray(payload.routines) &&
+        payload.routines.every(
+          (routine) =>
+            typeof routine === 'object' &&
+            routine !== null &&
+            typeof routine.id === 'string' &&
+            typeof routine.text === 'string',
+        ))) &&
     (payload.divideAndConquerItems === undefined ||
       (Array.isArray(payload.divideAndConquerItems) &&
         payload.divideAndConquerItems.every(
