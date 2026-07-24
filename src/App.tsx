@@ -3258,26 +3258,6 @@ const App = () => {
                         <div
                           className={`sort-cell sort-cell-top-left ${draggedTaskId ? 'drop-ready' : ''}`}
                           onDragOver={handleDivideAndConquerDragOver}
-                          onDrop={(event) => handleDivideAndConquerDrop(event, 'productive-attractive')}
-                        >
-                          <div
-                            ref={(element) => {
-                              quadrantListRefs.current['productive-attractive'] = element;
-                            }}
-                            className="sort-cell-items"
-                            onScroll={() => updateQuadrantScrollState('productive-attractive')}
-                          >
-                            {renderDivideAndConquerQuadrantItems(divideAndConquerBuckets['productive-attractive'])}
-                          </div>
-                          {renderQuadrantScrollIndicator(
-                            'productive-attractive',
-                            divideAndConquerBuckets['productive-attractive'],
-                          )}
-                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.topLeft : MATRIX_QUADRANT_LABELS.attraction.topLeft}</div>
-                        </div>
-                        <div
-                          className={`sort-cell sort-cell-top-right ${draggedTaskId ? 'drop-ready' : ''}`}
-                          onDragOver={handleDivideAndConquerDragOver}
                           onDrop={(event) => handleDivideAndConquerDrop(event, 'productive-unattractive')}
                         >
                           <div
@@ -3293,7 +3273,27 @@ const App = () => {
                             'productive-unattractive',
                             divideAndConquerBuckets['productive-unattractive'],
                           )}
-                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.topRight : MATRIX_QUADRANT_LABELS.attraction.topRight}</div>
+                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.topLeft : MATRIX_QUADRANT_LABELS.attraction.topRight}</div>
+                        </div>
+                        <div
+                          className={`sort-cell sort-cell-top-right ${draggedTaskId ? 'drop-ready' : ''}`}
+                          onDragOver={handleDivideAndConquerDragOver}
+                          onDrop={(event) => handleDivideAndConquerDrop(event, 'productive-attractive')}
+                        >
+                          <div
+                            ref={(element) => {
+                              quadrantListRefs.current['productive-attractive'] = element;
+                            }}
+                            className="sort-cell-items"
+                            onScroll={() => updateQuadrantScrollState('productive-attractive')}
+                          >
+                            {renderDivideAndConquerQuadrantItems(divideAndConquerBuckets['productive-attractive'])}
+                          </div>
+                          {renderQuadrantScrollIndicator(
+                            'productive-attractive',
+                            divideAndConquerBuckets['productive-attractive'],
+                          )}
+                          <div className="sort-cell-footer">{matrixLabelMode === 'eisenhower' ? MATRIX_QUADRANT_LABELS.eisenhower.topRight : MATRIX_QUADRANT_LABELS.attraction.topLeft}</div>
                         </div>
                         <div
                           className={`sort-cell sort-cell-bottom-left ${draggedTaskId ? 'drop-ready' : ''}`}
