@@ -996,6 +996,27 @@ const App = () => {
     };
   }, []);
 
+  // A completed task never belongs on the Capture (Plan Your Day) list. Drop its
+  // draft row whenever the item set changes — this covers live completion and a
+  // persisted same-day reload where the row would otherwise reappear. Keyed on
+  // items only, so re-typing a done task's text into a fresh row is left alone.
+  useEffect(() => {
+    const completedTexts = divideAndConquerItems
+      .filter((item) => item.bucket === 'completed')
+      .map((item) => item.text);
+
+    if (completedTexts.length === 0) {
+      return;
+    }
+
+    const currentRows = divideAndConquerDraftRowsRef.current;
+    const nextRows = removeTextsFromDraftRows(currentRows, completedTexts);
+
+    if (nextRows.length !== currentRows.length) {
+      commitDivideAndConquerDraftRows(nextRows);
+    }
+  }, [divideAndConquerItems]);
+
   useEffect(() => {
     if (!isLoaded || persistenceBlocked) {
       return;
@@ -2608,7 +2629,6 @@ const App = () => {
     if (displacedTask && displacedTask.bucket !== 'completed') {
       showCompletedDropFeedback(todayCompletedTasks.length + 1);
       track('task_completed', { completion_method: 'focus_displaced' });
-      removeCompletedTaskFromDraftRows(displacedTask.text);
     }
 
     if (displacedTaskId) {
@@ -2628,22 +2648,6 @@ const App = () => {
     track('task_set_as_focus');
   };
 
-  // Completing a task drops its matching row from Plan Your Day so the daily
-  // plan only ever lists work that's still outstanding.
-  const removeCompletedTaskFromDraftRows = (text: string) => {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    const currentRows = divideAndConquerDraftRowsRef.current;
-    const nextRows = removeTextsFromDraftRows(currentRows, [trimmed]);
-
-    if (nextRows.length !== currentRows.length) {
-      commitDivideAndConquerDraftRows(nextRows);
-    }
-  };
-
   const completeFocusTask = (taskId: string) => {
     if (!currentFocusTaskIds.includes(taskId)) {
       return;
@@ -2653,7 +2657,6 @@ const App = () => {
 
     if (focusTask && focusTask.bucket !== 'completed') {
       showCompletedDropFeedback(todayCompletedTasks.length + 1);
-      removeCompletedTaskFromDraftRows(focusTask.text);
     }
 
     setDivideAndConquerItems((currentItems) =>
@@ -2690,7 +2693,6 @@ const App = () => {
 
     showCompletedDropFeedback(todayCompletedTasks.length + 1);
     moveDivideAndConquerTask(taskId, 'completed');
-    removeCompletedTaskFromDraftRows(task.text);
     setStatus('Done.');
     track('task_completed', { completion_method: 'done_circle' });
   };
@@ -2751,7 +2753,6 @@ const App = () => {
       if (movingTask.bucket !== 'completed') {
         showCompletedDropFeedback(todayCompletedTasks.length + 1);
         track('task_completed', { completion_method: 'drag_and_drop' });
-        removeCompletedTaskFromDraftRows(movingTask.text);
       }
       setStatus('Done.');
     }
